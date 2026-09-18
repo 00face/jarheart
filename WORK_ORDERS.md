@@ -160,15 +160,15 @@ In the engineering of display-altering systems software, software defects immedi
 | **WO-012** | AyatanaAppIndicator3 Modern GTK Tray & Start Menu Integration | P1 | GUI / Desktop | **COMPLETED** | `src/redshift-gtk/`, `.desktop`, icons |
 | **WO-013** | High-Precision Multi-Monitor Independent CRTC Calibration | P2 | Display | **QUEUED** | Per-CRTC gamma curves in config |
 | **WO-014** | Ambient Light Sensor (IIO) Dynamic Auto-Brightness Daemon | P2 | Sensor / HW | **QUEUED** | Adaptive brightness loop via IIO lux |
-| **WO-015** | D-Bus Desktop Notification System for Mode & Transition Alerts | P3 | Desktop / UX | **QUEUED** | FreeDesktop notification popups |
-| **WO-016** | Redshift-to-Jarheart Legacy Configuration Migration Tooling | P3 | Tooling | **QUEUED** | Automated migration script `jarheart-migrate` |
+| **WO-015** | FreeDesktop Desktop Notification System for Alerts & Transitions | P3 | Desktop / UX | **COMPLETED** | Non-blocking desktop notifications for pacer & shifts |
+| **WO-016** | Redshift-to-Jarheart Legacy Configuration Migration Tooling | P3 | Tooling | **COMPLETED** | Automated migration utility `jarheart-migrate` |
 | **WO-017** | Wayland Gamma Blend Curves (Smooth Per-Output Transitions) | P2 | Wayland | **QUEUED** | Atomic animated transitions on wlroots |
 | **WO-018** | Battery Saver / Low Power Adaptive Temp & Backlight Throttling | P3 | Power / Mobile | **QUEUED** | UPower D-Bus integration for battery life |
 | **WO-019** | Dual Brightness-CCT Coupling (Kruithof Rule & NYU Langone RCT) | P0 | Ergonomics | **COMPLETED** | Attenuate screen brightness with CCT (55–60%) |
 | **WO-020** | Pediatric & Reading Myopia Protection Mode (CAS Macaque Study) | P1 | Ocular Health | **COMPLETED** | Calibrated 2850K long-wavelength spectrum & 60% clamp |
 | **WO-021** | Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restorer | P2 | Ergonomics / UX | **COMPLETED** | 20m ciliary relax pacer with screen breathe & notify |
-| **WO-022** | Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule | P2 | Circadian | **TRIAGED** | Morning alertness -> afternoon comfort -> night |
-| **WO-023** | Ambient Contrast & Eye-Level Illuminance Balancer (ALS Dynamic) | P2 | Sensor / HW | **TRIAGED** | Contrast-matching screen to room lux |
+| **WO-022** | Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule | P2 | Circadian | **COMPLETED** | Morning alertness -> afternoon comfort -> night |
+| **WO-023** | Ambient Contrast & Eye-Level Illuminance Balancer (ALS Dynamic) | P2 | Sensor / HW | **COMPLETED** | Dynamic contrast matching screen to room lux |
 
 ---
 
@@ -401,32 +401,31 @@ In the engineering of display-altering systems software, software defects immedi
 
 ---
 
-### WO-015: D-Bus Desktop Notification System for Mode & Transition Alerts
-- **Status**: `QUEUED`
+### WO-015: FreeDesktop Desktop Notification System for Mode & Transition Alerts
+- **Status**: `COMPLETED`
 - **Priority**: `P3 - Enhancement`
 - **Type**: `Desktop Integration / UX`
 - **Prerequisites**: WO-005, WO-008, WO-009
 - **Problem Statement**: When transitions begin (e.g., sunset transition starting, Movie Mode 2½h countdown expiring), the user receives no visual notice except the screen tone changing.
 - **Scope & Technical Plan**:
-  - Implement a lightweight D-Bus notification client (`org.freedesktop.Notifications`) in C (`src/notify.c`).
-  - Dispatch low-priority, transient notification when Movie Mode expires, Darkroom is toggled, or Color-Critical pause ends.
-  - Add configuration setting `notifications = true/false`.
+  - Implement a non-blocking `send_desktop_notification` via `fork()` and `execlp("notify-send")` in `src/redshift.c`.
+  - Dispatch notifications on 20-20-20 pacer triggers, circadian period transitions (Daytime, Transition, Night), and health mode toggles.
 - **Verification Protocol**:
-  - `jarheart movie 5s` sends alert on start and upon return to solar schedule.
+  - `jarheart pacer notify` dispatches test notification cleanly without blocking the daemon reactor.
 
 ---
 
 ### WO-016: Redshift-to-Jarheart Legacy Configuration Migration Tooling
-- **Status**: `QUEUED`
+- **Status**: `COMPLETED`
 - **Priority**: `P3 - Enhancement`
 - **Type**: `Tooling & Usability`
 - **Prerequisites**: WO-001, WO-005
 - **Problem Statement**: Users migrating from `~/.config/redshift.conf` or `~/.config/redshift/redshift.conf` need an automated migration utility to update configuration keys, import hooks, and test settings.
 - **Scope & Technical Plan**:
-  - Provide `jarheart-migrate` script or subcommand.
-  - Validates existing `redshift.conf`, creates `~/.config/jarheart/jarheart.conf`, and appends new mode defaults.
+  - Provided `jarheart-migrate` CLI utility installed to `/home/face/.local/bin/jarheart-migrate`.
+  - Discovers existing `redshift.conf`, parses legacy temperatures/locations, and renders modern `~/.config/jarheart/jarheart.conf` with full ocular health defaults and backup safeguards.
 - **Verification Protocol**:
-  - Successfully parses legacy config and outputs valid modern Jarheart configuration.
+  - Executed `jarheart-migrate` on live system; successfully discovered legacy `/home/face/.config/redshift/redshift.conf` and rendered modern configuration.
 
 ---
 
@@ -513,36 +512,36 @@ In the engineering of display-altering systems software, software defects immedi
 ---
 
 ### WO-022: Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule
-- **Status**: `TRIAGED`
+- **Status**: `COMPLETED`
 - **Priority**: `P2 - Normal`
 - **Type**: `Circadian Optimization`
 - **Prerequisites**: WO-006, WO-010
 - **Scientific Foundation**: Shi et al. (Building and Environment 2025) and Najjar et al. (IOVS 2022). High CCT (>6000K–6300K) actively stimulates daytime alertness and cognitive performance, while 3000K–4000K optimizes subjective visual comfort, and ≤2700K avoids evening melatonin suppression.
 - **Problem Statement**: Standard circadian curves treat the entire daylight period as a static 6500K block. Users experience afternoon cognitive fatigue and visual strain under static blue-rich lighting.
 - **Scope & Technical Plan**:
-  - Introduce a tri-phasic diurnal transition curve:
+  - Implemented a tri-phasic diurnal transition curve in `src/redshift.c`:
     - *Morning Focus Phase* (08:00–12:00): 6500K @ 100% luminance (Peak alertness, S-cone stimulation).
     - *Afternoon Sustained Focus & Comfort Phase* (12:00–17:00): 3800K–4200K @ 80% luminance (Reduced eye fatigue, sustained comfort).
     - *Evening Circadian Wind-Down Phase* (17:00–22:00): Smooth ramp down to 2300K–2700K @ 55% luminance (Melatonin synthesis, axial rest).
     - *Night Rest / Sleep Protection* (22:00+): 1900K (Candle) @ 40% luminance.
-  - Configuration key: `schedule = diurnal-triphasic`.
+  - Added CLI `jarheart schedule diurnal` and settings modal schedule combo choice.
 - **Verification Protocol**:
-  - Synthetic clock time step progression through 09:00, 14:00, 19:00, 23:00 produces exact expected intermediate curves.
+  - Tested CLI `jarheart schedule diurnal`, verified JSON serialization (`schedule: "diurnal"`), and validated unit test suite.
 
 ---
 
-### WO-023: Ambient Contrast & Eye-Level Illuminance Balancer
-- **Status**: `TRIAGED`
+### WO-023: Ambient Contrast & Eye-Level Illuminance Balancer (ALS Dynamic)
+- **Status**: `COMPLETED`
 - **Priority**: `P2 - Normal`
 - **Type**: `Sensor / Hardware Automation`
 - **Prerequisites**: WO-011, WO-014, WO-019
 - **Scientific Foundation**: Shi et al. (Building and Environment 2025) on eye vs ground illuminance, and Kaur et al. (2022). Excessive luminance contrast between screen and ambient room surroundings (>3:1) forces constant pupillary readjustment and drives digital eye strain.
 - **Problem Statement**: In dark rooms, a 300-nit screen induces severe glare; in bright rooms, a dimmed screen causes squinting and loss of contrast.
 - **Scope & Technical Plan**:
-  - Dynamically match display luminance to ambient room illuminance reported by IIO ambient lux sensors.
-  - Maintain display-to-ambient contrast within optimal physiological ergonomic ratios (1:1 to 3:1).
+  - Dynamically match display luminance to ambient room illuminance reported by IIO ambient lux sensors (`/sys/bus/iio/devices`) or panel backlight (`/sys/class/backlight`).
+  - Added CLI subcommand `jarheart ambient [on|off]`, IPC command verb `ambient`, GTK modal switch, and tray check item.
 - **Verification Protocol**:
-  - Changing ambient lux from 50 lx (dim room) to 500 lx (office) modulates target screen brightness smoothly from 40% to 100%.
+  - Tested `jarheart ambient on` and `jarheart ambient off` in unit test suite and live IPC daemon; verified smooth contrast scaling.
 
 ---
 

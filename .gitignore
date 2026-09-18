@@ -134,3 +134,7 @@ m4/lt~obsolete.m4
 # Meson
 /build/
 /subprojects/
+
+# Python
+__pycache__/
+*.pyc

@@ -133,6 +133,25 @@ int poll(struct pollfd *fds, int nfds, int timeout) { abort(); return -1; }
 #define SLEEP_DURATION        5000
 #define SLEEP_DURATION_SHORT  100
 
+#ifndef _WIN32
+static void
+send_desktop_notification(const char *summary, const char *body)
+{
+	pid_t pid = fork();
+	if (pid == 0) {
+		close(0);
+		close(1);
+		close(2);
+		execl("/usr/bin/notify-send", "notify-send",
+		      "-a", "Jarheart",
+		      "-i", "jarheart",
+		      "-t", "4500",
+		      summary, body, (char *)NULL);
+		_exit(0);
+	}
+}
+#endif
+
 /* Length of fade in numbers of short sleep durations. */
 #define FADE_LENGTH  40
 
@@ -750,10 +769,9 @@ run_continual_mode(const location_provider_t *provider,
 				ipc_state.last_pacer_time = now_epoch;
 			} else if (now_epoch - ipc_state.last_pacer_time >= ipc_state.pacer_interval) {
 				ipc_state.last_pacer_time = now_epoch;
-				/* Dispatch non-intrusive desktop notification if available */
-				if (system("which notify-send > /dev/null 2>&1") == 0) {
-					system("notify-send -a Jarheart -i jarheart '20-20-20 Ocular Rest' 'Look 20 feet away for 20 seconds to relax ciliary muscles and replenish tear film.' &");
-				}
+				ipc_state.pacer_breathe = 3;
+				send_desktop_notification("20-20-20 Ocular Rest",
+					"Look 20 feet away for 20 seconds to relax ciliary muscles and replenish tear film.");
 			}
 		}
 #endif
@@ -802,17 +820,66 @@ run_continual_mode(const location_provider_t *provider,
 
 		period_t period;
 		double transition_prog;
-		int active_use_time = scheme->use_time;
+		color_setting_t target_interp;
+
 #ifndef _WIN32
-		if (ipc_state.schedule_use_time) {
-			active_use_time = 1;
-		}
+		if (ipc_state.schedule_use_time == 2) {
+			/* WO-022: Diurnal Tri-Phasic Schedule */
+			int time_offset = get_seconds_since_midnight(now);
+			target_interp.gamma[0] = 1.0f;
+			target_interp.gamma[1] = 1.0f;
+			target_interp.gamma[2] = 1.0f;
+			target_interp.darkroom = 0;
+			target_interp.movie_mode = 0;
+			if (time_offset < 21600) { /* 00:00 - 06:00 */
+				period = PERIOD_NIGHT;
+				transition_prog = 0.0;
+				target_interp.temperature = 1900;
+				target_interp.brightness = 0.40f;
+			} else if (time_offset < 28800) { /* 06:00 - 08:00 */
+				period = PERIOD_TRANSITION;
+				transition_prog = (time_offset - 21600) / 7200.0;
+				target_interp.temperature = (int)(1900.0 + transition_prog * (6500 - 1900));
+				target_interp.brightness = (float)(0.40 + transition_prog * 0.60);
+			} else if (time_offset < 43200) { /* 08:00 - 12:00 */
+				period = PERIOD_DAYTIME;
+				transition_prog = 1.0;
+				target_interp.temperature = 6500;
+				target_interp.brightness = 1.00f;
+			} else if (time_offset < 48600) { /* 12:00 - 13:30 */
+				period = PERIOD_TRANSITION;
+				transition_prog = (time_offset - 43200) / 5400.0;
+				target_interp.temperature = (int)(6500.0 - transition_prog * (6500 - 4000));
+				target_interp.brightness = (float)(1.00 - transition_prog * 0.20);
+			} else if (time_offset < 61200) { /* 13:30 - 17:00 */
+				period = PERIOD_DAYTIME;
+				transition_prog = 1.0;
+				target_interp.temperature = 4000;
+				target_interp.brightness = 0.80f;
+			} else if (time_offset < 79200) { /* 17:00 - 22:00 */
+				period = PERIOD_TRANSITION;
+				transition_prog = (time_offset - 61200) / 18000.0;
+				target_interp.temperature = (int)(4000.0 - transition_prog * (4000 - 2300));
+				target_interp.brightness = (float)(0.80 - transition_prog * 0.25);
+			} else { /* 22:00 - 24:00 */
+				period = PERIOD_NIGHT;
+				transition_prog = 0.0;
+				target_interp.temperature = 1900;
+				target_interp.brightness = 0.40f;
+			}
+		} else
 #endif
-		if (active_use_time) {
+		if (scheme->use_time || (
+#ifndef _WIN32
+			ipc_state.schedule_use_time == 1
+#else
+			0
+#endif
+		)) {
 			int time_offset = get_seconds_since_midnight(now);
 			transition_scheme_t cur_scheme = *scheme;
 #ifndef _WIN32
-			if (ipc_state.schedule_use_time) {
+			if (ipc_state.schedule_use_time == 1) {
 				cur_scheme.dawn = ipc_state.dawn;
 				cur_scheme.dusk = ipc_state.dusk;
 			}
@@ -820,6 +887,8 @@ run_continual_mode(const location_provider_t *provider,
 			period = get_period_from_time(&cur_scheme, time_offset);
 			transition_prog = get_transition_progress_from_time(
 				&cur_scheme, time_offset);
+			interpolate_transition_scheme(
+				scheme, transition_prog, &target_interp);
 		} else {
 			/* Current angular elevation of the sun */
 			double elevation = solar_elevation(
@@ -829,13 +898,9 @@ run_continual_mode(const location_provider_t *provider,
 			transition_prog =
 				get_transition_progress_from_elevation(
 					scheme, elevation);
+			interpolate_transition_scheme(
+				scheme, transition_prog, &target_interp);
 		}
-
-		/* Use transition progress to get target color
-		   temperature. */
-		color_setting_t target_interp;
-		interpolate_transition_scheme(
-			scheme, transition_prog, &target_interp);
 
 #ifndef _WIN32
 		if (ipc_state.darkroom) {
@@ -870,6 +935,29 @@ run_continual_mode(const location_provider_t *provider,
 				target_interp.brightness = coupled_b;
 			}
 		}
+
+		/* WO-023: Ambient Contrast Balancer (dynamic lux scaling) */
+		if (ipc_state.ambient_balancer && !disabled && !ipc_state.darkroom) {
+			checks_result_t chk_light;
+			if (checks_check_light(&chk_light) == 0) {
+				if (chk_light.ambient_lux >= 0) {
+					double lux = fmax(1.0, (double)chk_light.ambient_lux);
+					float amb_scale = 0.40f + 0.60f * (float)(log10(lux) / 3.0);
+					if (amb_scale < 0.40f) amb_scale = 0.40f;
+					if (amb_scale > 1.00f) amb_scale = 1.00f;
+					target_interp.brightness *= amb_scale;
+				} else if (chk_light.backlight_percent >= 0) {
+					float amb_scale = 0.35f + 0.65f * ((float)chk_light.backlight_percent / 100.0f);
+					target_interp.brightness *= amb_scale;
+				}
+			}
+		}
+
+		/* 20-20-20 subtle screen breathe cue */
+		if (ipc_state.pacer_breathe > 0 && !disabled && !ipc_state.darkroom) {
+			target_interp.brightness *= 0.85f;
+			ipc_state.pacer_breathe--;
+		}
 #endif
 
 		if (disabled) {
@@ -893,6 +981,18 @@ run_continual_mode(const location_provider_t *provider,
 		/* Activate hooks if period changed */
 		if (period != prev_period) {
 			hooks_signal_period_change(prev_period, period);
+#ifndef _WIN32
+			if (prev_period != PERIOD_NONE && !disabled) {
+				const char *p_name = "Daytime";
+				if (period == PERIOD_NIGHT) p_name = "Night";
+				else if (period == PERIOD_TRANSITION) p_name = "Transition";
+				char notify_msg[128];
+				snprintf(notify_msg, sizeof(notify_msg),
+					 "Color temperature adjusting for %s (%uK).",
+					 p_name, target_interp.temperature);
+				send_desktop_notification("Jarheart Circadian Shift", notify_msg);
+			}
+#endif
 		}
 
 		/* Start fade if the parameter differences are too big to apply

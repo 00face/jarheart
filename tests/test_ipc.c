@@ -209,6 +209,28 @@ test_command_dispatch(void)
 	assert(state.pacer_interval == 0);
 	assert(strstr(resp, "20-20-20 Ocular Pacer: Disabled") != NULL);
 
+	/* Test 'ambient' */
+	r = ipc_dispatch_command("ambient on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.ambient_balancer == 1);
+	assert(strstr(resp, "Ambient contrast balancer: Enabled") != NULL);
+
+	r = ipc_dispatch_command("ambient off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.ambient_balancer == 0);
+	assert(strstr(resp, "Ambient contrast balancer: Disabled") != NULL);
+
+	/* Test 'schedule diurnal' */
+	r = ipc_dispatch_command("schedule diurnal", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.schedule_use_time == 2);
+	assert(strstr(resp, "Schedule: Diurnal Tri-Phasic") != NULL);
+
+	r = ipc_dispatch_command("schedule solar", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.schedule_use_time == 0);
+	assert(strstr(resp, "Schedule: Solar elevation") != NULL);
+
 	/* Test 'reset' clears presets and modes */
 	state.darkroom = 1;
 	state.movie_mode = 1;

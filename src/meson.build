@@ -137,4 +137,11 @@ if get_option('gui')
     pointing_to: 'redshift-gtk',
     install_dir: get_option('bindir'),
   )
+
+  install_data(
+    'jarheart-migrate.py',
+    rename: 'jarheart-migrate',
+    install_dir: get_option('bindir'),
+    install_mode: 'rwxr-xr-x',
+  )
 endif

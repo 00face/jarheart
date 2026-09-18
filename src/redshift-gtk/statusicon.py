@@ -118,6 +118,11 @@ class RedshiftStatusIcon(object):
         self.couple_item.connect('toggled', self.couple_toggle_cb)
         self.status_menu.append(self.couple_item)
 
+        # Add Ambient Contrast Balancer action (WO-023)
+        self.ambient_item = Gtk.CheckMenuItem.new_with_label(_('Ambient Contrast Balancer (ALS)'))
+        self.ambient_item.connect('toggled', self.ambient_toggle_cb)
+        self.status_menu.append(self.ambient_item)
+
         # Add Presets submenu
         presets_menu_item = Gtk.MenuItem.new_with_label(_('Presets'))
         presets_menu = Gtk.Menu()
@@ -362,6 +367,12 @@ class RedshiftStatusIcon(object):
         else:
             self.send_ipc('couple-brightness off')
 
+    def ambient_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('ambient on')
+        else:
+            self.send_ipc('ambient off')
+
     def pacer_cb(self, widget, mode):
         self.send_ipc('pacer ' + mode)
 
@@ -405,6 +416,10 @@ class RedshiftStatusIcon(object):
                 self.couple_item.handler_block_by_func(self.couple_toggle_cb)
                 self.couple_item.set_active(st.get('couple_brightness') == 'true')
                 self.couple_item.handler_unblock_by_func(self.couple_toggle_cb)
+
+                self.ambient_item.handler_block_by_func(self.ambient_toggle_cb)
+                self.ambient_item.set_active(st.get('ambient_balancer') == 'true')
+                self.ambient_item.handler_unblock_by_func(self.ambient_toggle_cb)
             except Exception:
                 pass
 

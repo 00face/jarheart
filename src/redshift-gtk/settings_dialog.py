@@ -360,6 +360,31 @@ class SettingsDialog(Gtk.Window):
         card4.pack_start(self.movie_switch, False, False, 0)
         box.pack_start(card4, False, False, 0)
 
+        # Ambient Contrast Balancer Card (WO-023)
+        card_amb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_amb.get_style_context().add_class('card-box')
+        v_amb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_amb.set_hexpand(True)
+        lbl_amb = Gtk.Label(label=_("💡 Ambient Contrast Balancer (ALS Dynamic)"))
+        lbl_amb.get_style_context().add_class('card-title')
+        lbl_amb.set_xalign(0.0)
+        desc_amb = Gtk.Label(label=_(
+            "Dynamically scales screen luminance to match room lux from ambient light sensors.\n"
+            "Maintains ergonomic 1:1 to 3:1 display-to-ambient contrast to eliminate pupil fatigue."
+        ))
+        desc_amb.get_style_context().add_class('card-desc')
+        desc_amb.set_xalign(0.0)
+        desc_amb.set_line_wrap(True)
+        v_amb.pack_start(lbl_amb, False, False, 0)
+        v_amb.pack_start(desc_amb, False, False, 0)
+        card_amb.pack_start(v_amb, True, True, 0)
+
+        self.ambient_switch = Gtk.Switch()
+        self.ambient_switch.set_valign(Gtk.Align.CENTER)
+        self.ambient_switch.connect('notify::active', self.on_ambient_toggled)
+        card_amb.pack_start(self.ambient_switch, False, False, 0)
+        box.pack_start(card_amb, False, False, 0)
+
         # Color-Critical Pause Quick Action
         card5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         card5.get_style_context().add_class('card-box')
@@ -506,10 +531,16 @@ class SettingsDialog(Gtk.Window):
         val = switch.get_active()
         self.send_ipc(f'movie {"on" if val else "off"}')
 
+    def on_ambient_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'ambient {"on" if val else "off"}')
+
     def on_schedule_changed(self, combo):
         active_id = combo.get_active_id()
         if active_id == 'solar':
             self.send_ipc('schedule solar')
+        elif active_id == 'diurnal':
+            self.send_ipc('schedule diurnal')
         elif active_id == 'time':
             self.send_ipc('schedule 06:30-07:30 19:30-20:45')
 
@@ -524,17 +555,22 @@ class SettingsDialog(Gtk.Window):
         brightness = self.bright_scale.get_value() / 100.0
 
         content = f"""# Jarheart Configuration File
-[redshift]
+[jarheart]
 temp-day={day_temp}
 temp-night={night_temp}
 brightness={brightness:.2f}
 gamma=1.000:1.000:1.000
+schedule={self.schedule_combo.get_active_id() or 'solar'}
+couple-brightness={'true' if self.couple_switch.get_active() else 'false'}
+myopia-protect={'true' if self.myopia_switch.get_active() else 'false'}
+ambient-balancer={'true' if self.ambient_switch.get_active() else 'false'}
+pacer-interval={1200 if self.pacer_switch.get_active() else 0}
 adjustment-method=randr
 location-provider=manual
 
 [manual]
-lat=41.85
-lon=-87.65
+lat={self.lat_entry.get_text().strip() or '41.85'}
+lon={self.lon_entry.get_text().strip() or '-87.65'}
 """
         try:
             with open(config_path, 'w') as f:
@@ -559,6 +595,10 @@ lon=-87.65
         self.myopia_switch.set_active(st.get('myopia_protect') == 'true')
         self.myopia_switch.handler_unblock_by_func(self.on_myopia_toggled)
 
+        self.ambient_switch.handler_block_by_func(self.on_ambient_toggled)
+        self.ambient_switch.set_active(st.get('ambient_balancer') == 'true')
+        self.ambient_switch.handler_unblock_by_func(self.on_ambient_toggled)
+
         self.darkroom_switch.handler_block_by_func(self.on_darkroom_toggled)
         self.darkroom_switch.set_active(st.get('darkroom') == 'true')
         self.darkroom_switch.handler_unblock_by_func(self.on_darkroom_toggled)
@@ -570,6 +610,16 @@ lon=-87.65
         self.pacer_switch.handler_block_by_func(self.on_pacer_toggled)
         self.pacer_switch.set_active(int(st.get('pacer_interval', 0)) > 0)
         self.pacer_switch.handler_unblock_by_func(self.on_pacer_toggled)
+
+        sched = st.get('schedule', 'solar')
+        self.schedule_combo.handler_block_by_func(self.on_schedule_changed)
+        if sched == 'diurnal':
+            self.schedule_combo.set_active_id('diurnal')
+        elif sched == 'time':
+            self.schedule_combo.set_active_id('time')
+        else:
+            self.schedule_combo.set_active_id('solar')
+        self.schedule_combo.handler_unblock_by_func(self.on_schedule_changed)
 
         lat = st.get('latitude', 0.0)
         lon = st.get('longitude', 0.0)

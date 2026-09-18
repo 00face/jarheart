@@ -201,6 +201,7 @@ ipc_dispatch_command(
 				 "  \"movie_remaining\": %ld,\n"
 				 "  \"myopia_protect\": %s,\n"
 				 "  \"couple_brightness\": %s,\n"
+				 "  \"ambient_balancer\": %s,\n"
 				 "  \"pacer_interval\": %d,\n"
 				 "  \"preset\": \"%s\",\n"
 				 "  \"schedule\": \"%s\",\n"
@@ -227,9 +228,10 @@ ipc_dispatch_command(
 				 movie_remaining,
 				 state->myopia_protect ? "true" : "false",
 				 state->couple_brightness ? "true" : "false",
+				 state->ambient_balancer ? "true" : "false",
 				 state->pacer_interval,
 				 state->current_preset[0] ? state->current_preset : "none",
-				 state->schedule_use_time ? "time" : "solar",
+				 state->schedule_use_time == 2 ? "diurnal" : (state->schedule_use_time ? "time" : "solar"),
 				 state->override_temp,
 				 state->current_setting.temperature,
 				 period_str,
@@ -274,6 +276,7 @@ ipc_dispatch_command(
 			 "Movie mode: %s\n"
 			 "Myopia protect: %s\n"
 			 "Coupled brightness: %s\n"
+			 "Ambient balancer: %s\n"
 			 "Pacer: %s\n"
 			 "Preset: %s\n"
 			 "Schedule: %s\n"
@@ -293,9 +296,10 @@ ipc_dispatch_command(
 			 movie_str,
 			 state->myopia_protect ? "Active (2850K, 60% lum)" : "Inactive",
 			 state->couple_brightness ? "Enabled" : "Disabled",
+			 state->ambient_balancer ? "Enabled (dynamic lux matching)" : "Disabled",
 			 pacer_str,
 			 state->current_preset[0] ? state->current_preset : "None",
-			 state->schedule_use_time ? "Time schedule" : "Solar elevation",
+			 state->schedule_use_time == 2 ? "Diurnal tri-phasic (alertness -> comfort -> wind-down)" : (state->schedule_use_time ? "Time schedule" : "Solar elevation"),
 			 state->override_temp);
 		return 0;
 	} else if (strcasecmp(cmd, "toggle") == 0) {
@@ -516,11 +520,34 @@ ipc_dispatch_command(
 		checks_check_weather(&chk, 1);
 		snprintf(response_buf, response_buf_size, "Weather: %s\n", chk.weather_summary);
 		return 0;
+	} else if (strcasecmp(cmd, "ambient") == 0 || strcasecmp(cmd, "contrast") == 0) {
+		if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->ambient_balancer = 1;
+		} else if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->ambient_balancer = 0;
+		} else if (strcasecmp(arg, "toggle") == 0 || *arg == '\0') {
+			state->ambient_balancer = !state->ambient_balancer;
+		} else {
+			snprintf(response_buf, response_buf_size,
+				 "Error: Unknown argument '%s'. Usage: ambient [on|off|toggle]\n", arg);
+			return 0;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Ambient contrast balancer: %s (dynamically balances screen luminance against room lux)\n",
+			 state->ambient_balancer ? "Enabled" : "Disabled");
+		return 0;
 	} else if (strcasecmp(cmd, "schedule") == 0) {
 		if (strcasecmp(arg, "solar") == 0 || strcasecmp(arg, "auto") == 0) {
 			state->schedule_use_time = 0;
 			state->state_changed = 1;
 			snprintf(response_buf, response_buf_size, "Schedule: Solar elevation (automatic)\n");
+			return 0;
+		} else if (strcasecmp(arg, "diurnal") == 0 || strcasecmp(arg, "triphasic") == 0) {
+			state->schedule_use_time = 2;
+			state->state_changed = 1;
+			snprintf(response_buf, response_buf_size,
+				 "Schedule: Diurnal Tri-Phasic (Morning Focus -> Afternoon Comfort -> Evening Wind-Down)\n");
 			return 0;
 		} else if (*arg != '\0') {
 			char dawn_str[64], dusk_str[64];
@@ -539,10 +566,13 @@ ipc_dispatch_command(
 				}
 			}
 			snprintf(response_buf, response_buf_size,
-				 "Error: Invalid schedule parameters. Usage: schedule <dawn> <dusk> (e.g. schedule 06:30-07:30 19:30-20:45) or 'schedule solar'\n");
+				 "Error: Invalid schedule parameters. Usage: schedule <dawn> <dusk> (e.g. schedule 06:30-07:30 19:30-20:45), 'schedule diurnal', or 'schedule solar'\n");
 			return 0;
 		} else {
-			if (state->schedule_use_time) {
+			if (state->schedule_use_time == 2) {
+				snprintf(response_buf, response_buf_size,
+					 "Schedule: Diurnal Tri-Phasic (Morning: 6500K @ 1.0, Afternoon: 4000K @ 0.80, Evening: 2300K @ 0.55, Night: 1900K @ 0.40)\n");
+			} else if (state->schedule_use_time == 1) {
 				snprintf(response_buf, response_buf_size,
 					 "Schedule: Time-based (Dawn: %02d:%02d-%02d:%02d, Dusk: %02d:%02d-%02d:%02d)\n",
 					 state->dawn.start / 3600, (state->dawn.start % 3600) / 60,
@@ -616,9 +646,13 @@ ipc_dispatch_command(
 			 "  resume           Resume adjustments\n"
 			 "  darkroom [on|off]Deep monochrome red for stargazing & darkrooms\n"
 			 "  movie [TIME|off] Movie Mode (2.5h duration, warm tone, preserves sky & shadows)\n"
+			 "  myopia-protect   Myopia protection mode (2850K, 60%% luminance limit)\n"
+			 "  couple-brightness Couple screen brightness with Kelvin temperature (Kruithof)\n"
+			 "  ambient [on|off] Ambient contrast balancer (scales brightness to room lux)\n"
+			 "  pacer [20m|30m]  20-20-20 ocular rest pacer (breathe & desktop notification)\n"
 			 "  preset NAME      Set a Kelvin preset (candle, halogen, sunlight...)\n"
 			 "  presets          List all Kelvin presets and color temperatures\n"
-			 "  schedule [TIMES] Set or view time-based or solar schedule\n"
+			 "  schedule [SCHED] Set schedule (solar, diurnal, or dawn dusk times)\n"
 			 "  check            Run gentle light, weather, and timezone checks\n"
 			 "  weather          Check current local weather\n"
 			 "  set TEMP|PRESET  Temporarily override temperature\n"
@@ -892,7 +926,8 @@ ipc_client_dispatch(int argc, char *argv[])
 		"darkroom", "movie", "preset", "presets", "schedule",
 		"check", "weather",
 		"myopia-protect", "myopia", "reading",
-		"couple-brightness", "couple", "pacer",
+		"couple-brightness", "couple",
+		"ambient", "contrast", "pacer",
 		"quit", "exit", "stop", "help", NULL
 	};
 

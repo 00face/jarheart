@@ -4,6 +4,9 @@ if get_option('gui')
     'icons/hicolor/scalable/apps/redshift.svg',
     'icons/hicolor/scalable/apps/redshift-status-on.svg',
     'icons/hicolor/scalable/apps/redshift-status-off.svg',
+    'icons/hicolor/scalable/apps/jarheart.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-on.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-off.svg',
     install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps',
   )
 
@@ -69,13 +72,25 @@ endif
 
 # Systemd user units
 if systemd_dep.found()
-  systemd_userunitdir = systemd_dep.get_variable(
-    pkgconfig: 'systemduserunitdir',
-    default_value: get_option('prefix') / 'lib/systemd/user',
-  )
+  if get_option('prefix') == '/usr'
+    systemd_userunitdir = systemd_dep.get_variable(
+      pkgconfig: 'systemduserunitdir',
+      default_value: '/usr/lib/systemd/user',
+    )
+  else
+    systemd_userunitdir = get_option('prefix') / 'lib/systemd/user'
+  endif
 
   unit_conf = configuration_data()
   unit_conf.set('bindir', get_option('prefix') / get_option('bindir'))
+
+  configure_file(
+    input: 'systemd/jarheart.service.in',
+    output: 'jarheart.service',
+    configuration: unit_conf,
+    install: true,
+    install_dir: systemd_userunitdir,
+  )
 
   configure_file(
     input: 'systemd/redshift.service.in',
@@ -86,6 +101,14 @@ if systemd_dep.found()
   )
 
   if get_option('gui')
+    configure_file(
+      input: 'systemd/jarheart-gtk.service.in',
+      output: 'jarheart-gtk.service',
+      configuration: unit_conf,
+      install: true,
+      install_dir: systemd_userunitdir,
+    )
+
     configure_file(
       input: 'systemd/redshift-gtk.service.in',
       output: 'redshift-gtk.service',

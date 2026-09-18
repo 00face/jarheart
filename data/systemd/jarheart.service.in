@@ -1,0 +1,11 @@
+[Unit]
+Description=Jarheart display colour temperature adjustment
+Documentation=https://github.com/00face/jarheart
+After=graphical-session.target
+
+[Service]
+ExecStart=@bindir@/jarheart
+Restart=always
+
+[Install]
+WantedBy=graphical-session.target

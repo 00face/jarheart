@@ -29,7 +29,11 @@ except ImportError:
     has_xdg = False
 
 
-REDSHIFT_DESKTOP = 'redshift-gtk.desktop'
+def get_desktop_file_name():
+    if 'jarheart' in sys.argv[0]:
+        return 'jarheart-gtk.desktop'
+    return 'redshift-gtk.desktop'
+
 
 # Keys to set when enabling/disabling autostart.
 # Only first one is checked on "get".
@@ -38,16 +42,22 @@ AUTOSTART_KEYS = (('Hidden', ('true', 'false')),
 
 
 def open_autostart_file():
+    desktop_name = get_desktop_file_name()
     autostart_dir = BaseDirectory.save_config_path("autostart")
-    autostart_file = os.path.join(autostart_dir, REDSHIFT_DESKTOP)
+    autostart_file = os.path.join(autostart_dir, desktop_name)
 
     if not os.path.exists(autostart_file):
         desktop_files = list(
             BaseDirectory.load_data_paths(
-                "applications", REDSHIFT_DESKTOP))
+                "applications", desktop_name))
+        if not desktop_files and desktop_name != 'redshift-gtk.desktop':
+            desktop_name = 'redshift-gtk.desktop'
+            desktop_files = list(
+                BaseDirectory.load_data_paths(
+                    "applications", desktop_name))
 
         if not desktop_files:
-            raise IOError("Installed redshift desktop file not found!")
+            raise IOError("Installed desktop file not found!")
 
         desktop_file_path = desktop_files[0]
 

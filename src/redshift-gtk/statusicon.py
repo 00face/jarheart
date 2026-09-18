@@ -33,10 +33,14 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
 
 try:
-    gi.require_version('AppIndicator3', '0.1')
-    from gi.repository import AppIndicator3 as appindicator
+    gi.require_version('AyatanaAppIndicator3', '0.1')
+    from gi.repository import AyatanaAppIndicator3 as appindicator
 except (ImportError, ValueError):
-    appindicator = None
+    try:
+        gi.require_version('AppIndicator3', '0.1')
+        from gi.repository import AppIndicator3 as appindicator
+    except (ImportError, ValueError):
+        appindicator = None
 
 from .controller import RedshiftController
 from . import defs
@@ -54,14 +58,18 @@ class RedshiftStatusIcon(object):
         self._controller = controller
 
         self.icon_theme = Gtk.IconTheme.get_default()
-        icon_name = 'redshift-status-on-symbolic'
+        icon_name = 'jarheart-status-on-symbolic'
+        if not self.icon_theme.has_icon(icon_name):
+            icon_name = 'jarheart-status-on'
+        if not self.icon_theme.has_icon(icon_name):
+            icon_name = 'redshift-status-on-symbolic'
         if not self.icon_theme.has_icon(icon_name):
             icon_name = 'redshift-status-on'
 
         if appindicator:
             # Create indicator
             self.indicator = appindicator.Indicator.new(
-                'redshift',
+                'jarheart',
                 icon_name,
                 appindicator.IndicatorCategory.APPLICATION_STATUS)
             self.indicator.set_status(appindicator.IndicatorStatus.ACTIVE)
@@ -69,7 +77,7 @@ class RedshiftStatusIcon(object):
             # Create status icon
             self.status_icon = Gtk.StatusIcon()
             self.status_icon.set_from_icon_name(icon_name)
-            self.status_icon.set_tooltip_text('Redshift')
+            self.status_icon.set_tooltip_text('Jarheart')
 
         # Create popup menu
         self.status_menu = Gtk.Menu()
@@ -258,10 +266,11 @@ class RedshiftStatusIcon(object):
         This should be called whenever the internally recorded state
         might have changed.
         """
+        prefix = 'jarheart' if self.icon_theme.has_icon('jarheart-status-on') else 'redshift'
         if self._controller.inhibited:
-            icon_name = 'redshift-status-off-symbolic'
+            icon_name = f'{prefix}-status-off-symbolic'
         else:
-            icon_name = 'redshift-status-on-symbolic'
+            icon_name = f'{prefix}-status-on-symbolic'
 
         if not self.icon_theme.has_icon(icon_name):
             icon_name = icon_name.replace('-symbolic', '')
@@ -351,15 +360,20 @@ class RedshiftStatusIcon(object):
 
 
 def run():
-    utils.setproctitle('redshift-gtk')
+    prog_name = 'jarheart-gtk' if 'jarheart' in sys.argv[0] else 'redshift-gtk'
+    utils.setproctitle(prog_name)
 
     # Internationalisation
-    gettext.bindtextdomain('redshift', defs.LOCALEDIR)
-    gettext.textdomain('redshift')
+    for domain in ('jarheart', 'redshift'):
+        try:
+            gettext.bindtextdomain(domain, defs.LOCALEDIR)
+        except Exception:
+            pass
+    gettext.textdomain('jarheart')
 
     for help_arg in ('-h', '--help'):
         if help_arg in sys.argv:
-            print(_('Please run `redshift -h` for help output.'))
+            print(_('Please run `jarheart -h` or `redshift -h` for help output.'))
             sys.exit(-1)
 
     # Create redshift child process controller

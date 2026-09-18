@@ -108,6 +108,17 @@ signals_install_handlers(void)
 		perror("sigaction");
 		return -1;
 	}
+
+	/* Ignore PIPE signal for socket communication */
+	sigact.sa_handler = SIG_IGN;
+	sigact.sa_mask = sigset;
+	sigact.sa_flags = 0;
+
+	r = sigaction(SIGPIPE, &sigact, NULL);
+	if (r < 0) {
+		perror("sigaction");
+		return -1;
+	}
 #endif /* HAVE_SIGNAL_H && ! __WIN32__ */
 
 	return 0;

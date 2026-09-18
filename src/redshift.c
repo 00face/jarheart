@@ -66,6 +66,7 @@ int poll(struct pollfd *fds, int nfds, int timeout) { abort(); return -1; }
 #include "hooks.h"
 #include "signals.h"
 #include "options.h"
+#include "ipc.h"
 
 /* pause() is not defined on windows platform but is not needed either.
    Use a noop macro instead. */
@@ -626,6 +627,20 @@ run_continual_mode(const location_provider_t *provider,
 		return r;
 	}
 
+#ifndef _WIN32
+	ipc_t ipc;
+	int ipc_active = 0;
+	r = ipc_init(&ipc);
+	if (r == -EEXIST) {
+		fputs(_("Another instance of jarheart is already running.\n"), stderr);
+		return -1;
+	} else if (r == 0) {
+		ipc_active = 1;
+	}
+	daemon_ipc_state_t ipc_state;
+	memset(&ipc_state, 0, sizeof(ipc_state));
+#endif
+
 	/* Save previous parameters so we can avoid printing status updates if
 	   the values did not change. */
 	period_t prev_period = PERIOD_NONE;
@@ -672,10 +687,26 @@ run_continual_mode(const location_provider_t *provider,
 	int disabled = 0;
 	int location_available = 1;
 	while (1) {
+#ifndef _WIN32
+		time_t now_epoch = time(NULL);
+		if (ipc_state.pause_until > 0) {
+			if (now_epoch >= ipc_state.pause_until) {
+				ipc_state.pause_until = 0;
+				disabled = 0;
+			} else {
+				disabled = 1;
+			}
+		}
+#endif
+
 		/* Check to see if disable signal was caught */
 		if (disable && !done) {
 			disabled = !disabled;
 			disable = 0;
+#ifndef _WIN32
+			ipc_state.pause_until = 0;
+			ipc_state.override_temp = 0;
+#endif
 		}
 
 		/* Check to see if exit signal was caught */
@@ -730,6 +761,12 @@ run_continual_mode(const location_provider_t *provider,
 		color_setting_t target_interp;
 		interpolate_transition_scheme(
 			scheme, transition_prog, &target_interp);
+
+#ifndef _WIN32
+		if (ipc_state.override_temp > 0) {
+			target_interp.temperature = ipc_state.override_temp;
+		}
+#endif
 
 		if (disabled) {
 			period = PERIOD_NONE;
@@ -805,6 +842,15 @@ run_continual_mode(const location_provider_t *provider,
 			}
 		}
 
+#ifndef _WIN32
+		ipc_state.disabled = disabled;
+		ipc_state.period = period;
+		ipc_state.transition_prog = transition_prog;
+		ipc_state.current_setting = interp;
+		ipc_state.location = loc;
+		ipc_state.method_name = method->name;
+#endif
+
 		/* Adjust temperature */
 		r = method->set_temperature(
 			method_state, &interp, preserve_gamma);
@@ -824,68 +870,105 @@ run_continual_mode(const location_provider_t *provider,
 			delay = SLEEP_DURATION_SHORT;
 		}
 
-		/* Update location. */
+		/* Update location and check IPC events */
 		int loc_fd = -1;
 		if (need_location) {
 			loc_fd = provider->get_fd(location_state);
 		}
 
+		struct pollfd pollfds[2];
+		int nfds = 0;
+		int loc_idx = -1;
+		int ipc_idx = -1;
+
 		if (loc_fd >= 0) {
-			/* Provider is dynamic. */
-			struct pollfd pollfds[1];
-			pollfds[0].fd = loc_fd;
-			pollfds[0].events = POLLIN;
-			int r = poll(pollfds, 1, delay);
+			loc_idx = nfds;
+			pollfds[nfds].fd = loc_fd;
+			pollfds[nfds].events = POLLIN;
+			pollfds[nfds].revents = 0;
+			nfds++;
+		}
+
+#ifndef _WIN32
+		if (ipc_active) {
+			ipc_idx = nfds;
+			pollfds[nfds].fd = ipc_get_fd(&ipc);
+			pollfds[nfds].events = POLLIN;
+			pollfds[nfds].revents = 0;
+			nfds++;
+		}
+#endif
+
+		if (nfds > 0) {
+			int r = poll(pollfds, nfds, delay);
 			if (r < 0) {
 				if (errno == EINTR) continue;
 				perror("poll");
-				fputs(_("Unable to get location"
-					" from provider.\n"), stderr);
+				fputs(_("Unable to poll descriptors.\n"), stderr);
 				return -1;
-			} else if (r == 0) {
-				continue;
-			}
+			} else if (r > 0) {
+#ifndef _WIN32
+				if (ipc_idx >= 0 && (pollfds[ipc_idx].revents & POLLIN)) {
+					ipc_handle_connection(&ipc, &ipc_state);
+					if (ipc_state.state_changed) {
+						disabled = ipc_state.disabled;
+						ipc_state.state_changed = 0;
+					}
+					if (ipc_state.requested_exit) {
+						done = 1;
+						disabled = 1;
+					}
+				}
+#endif
 
-			/* Get new location and availability
-			   information. */
-			location_t new_loc;
-			int new_available;
-			r = provider->handle(
-				location_state, &new_loc,
-				&new_available);
-			if (r < 0) {
-				fputs(_("Unable to get location"
-					" from provider.\n"), stderr);
-				return -1;
-			}
+				if (loc_idx >= 0 && (pollfds[loc_idx].revents & POLLIN)) {
+					/* Get new location and availability information. */
+					location_t new_loc;
+					int new_available;
+					r = provider->handle(
+						location_state, &new_loc,
+						&new_available);
+					if (r < 0) {
+						fputs(_("Unable to get location"
+							" from provider.\n"), stderr);
+						return -1;
+					}
 
-			if (!new_available &&
-			    new_available != location_available) {
-				fputs(_("Location is temporarily"
-				        " unavailable; Using previous"
-					" location until it becomes"
-					" available...\n"), stderr);
-			}
+					if (!new_available &&
+					    new_available != location_available) {
+						fputs(_("Location is temporarily"
+						        " unavailable; Using previous"
+							" location until it becomes"
+							" available...\n"), stderr);
+					}
 
-			if (new_available &&
-			    (new_loc.lat != loc.lat ||
-			     new_loc.lon != loc.lon ||
-			     new_available != location_available)) {
-				loc = new_loc;
-				print_location(&loc);
-			}
+					if (new_available &&
+					    (new_loc.lat != loc.lat ||
+					     new_loc.lon != loc.lon ||
+					     new_available != location_available)) {
+						loc = new_loc;
+						print_location(&loc);
+					}
 
-			location_available = new_available;
+					location_available = new_available;
 
-			if (!location_is_valid(&loc)) {
-				fputs(_("Invalid location returned"
-					" from provider.\n"), stderr);
-				return -1;
+					if (!location_is_valid(&loc)) {
+						fputs(_("Invalid location returned"
+							" from provider.\n"), stderr);
+						return -1;
+					}
+				}
 			}
 		} else {
 			systemtime_msleep(delay);
 		}
 	}
+
+#ifndef _WIN32
+	if (ipc_active) {
+		ipc_cleanup(&ipc);
+	}
+#endif
 
 	/* Restore saved gamma ramps */
 	method->restore(method_state);
@@ -950,6 +1033,13 @@ main(int argc, char *argv[])
 	   changing the actual buffers being used. */
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	setvbuf(stderr, NULL, _IOLBF, 0);
+
+#ifndef _WIN32
+	int ipc_cli_res = ipc_client_dispatch(argc, argv);
+	if (ipc_cli_res >= 0) {
+		exit(ipc_cli_res);
+	}
+#endif
 
 	options_t options;
 	options_init(&options);

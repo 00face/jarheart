@@ -3,6 +3,7 @@ jarheart_sources = files(
   'config-ini.c',
   'gamma-dummy.c',
   'hooks.c',
+  'ipc.c',
   'location-manual.c',
   'options.c',
   'pipeutils.c',

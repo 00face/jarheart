@@ -156,8 +156,9 @@ print_help(const char *program_name)
 	   DAY is temperature at daytime,
 	   NIGHT is temperature at night
 	   no-wrap */
-	printf(_("Usage: %s -l LAT:LON -t DAY:NIGHT [OPTIONS...]\n"),
-		program_name);
+	printf(_("Usage: %s [COMMAND]\n"
+		 "   or: %s -l LAT:LON -t DAY:NIGHT [OPTIONS...]\n"),
+		program_name, program_name);
 	fputs("\n", stdout);
 
 	/* TRANSLATORS: help output 2
@@ -166,9 +167,20 @@ print_help(const char *program_name)
 		" according to time of day.\n"), stdout);
 	fputs("\n", stdout);
 
+	fputs(_("Commands:\n"
+		"  status\tShow status of running daemon\n"
+		"  toggle\tToggle daemon on/off\n"
+		"  pause [TIME]\tPause daemon adjustments (e.g. 30m, 1h, 1800)\n"
+		"  resume\tResume daemon adjustments\n"
+		"  set TEMP\tTemporarily override color temperature (e.g. 3500)\n"
+		"  reset\t\tClear manual overrides and pause\n"
+		"  quit\t\tStop running daemon\n"), stdout);
+	fputs("\n", stdout);
+
 	/* TRANSLATORS: help output 3
 	   no-wrap */
-	fputs(_("  -h\t\tDisplay this help message\n"
+	fputs(_("Options:\n"
+		"  -h\t\tDisplay this help message\n"
 		"  -v\t\tVerbose output\n"
 		"  -V\t\tShow program version\n"), stdout);
 	fputs("\n", stdout);

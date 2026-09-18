@@ -23,3 +23,13 @@ test_config_ini = executable(
   include_directories: [inc_root, inc_src],
 )
 test('config_ini', test_config_ini)
+
+test_ipc = executable(
+  'test_ipc',
+  'test_ipc.c',
+  '../src/ipc.c',
+  include_directories: [inc_root, inc_src],
+  dependencies: [m_dep],
+)
+test('ipc', test_ipc)
+

@@ -1681,7 +1681,11 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
 
     def on_close_clicked(self, widget, event=None):
         if self.parent_statusicon is not None:
-            self.hide()
+            try:
+                self.parent_statusicon.settings_dialog = None
+            except Exception:
+                pass
+            self.destroy()
             return True
         else:
             if Gtk.main_level() > 0:

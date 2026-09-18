@@ -611,8 +611,13 @@ class RedshiftStatusIcon(object):
     def show_settings_cb(self, widget, page=None):
         if SettingsDialog is None:
             return
-        if self.settings_dialog is None:
-            self.settings_dialog = SettingsDialog(parent_statusicon=self)
+        if self.settings_dialog is not None:
+            try:
+                self.settings_dialog.destroy()
+            except Exception:
+                pass
+            self.settings_dialog = None
+        self.settings_dialog = SettingsDialog(parent_statusicon=self)
         self.settings_dialog.refresh_state_from_daemon()
         if page and isinstance(page, str) and hasattr(self.settings_dialog, 'stack'):
             self.settings_dialog.stack.set_visible_child_name(page)

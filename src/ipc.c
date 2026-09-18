@@ -188,7 +188,8 @@ ipc_dispatch_command(
 			state->disabled || is_paused,
 			state->darkroom,
 			state->sunlight_mode,
-			state->reading_mode);
+			state->reading_mode,
+			state->cvd_mode);
 
 		if (arg != NULL && (strcasecmp(arg, "--json") == 0 || strcasecmp(arg, "-j") == 0 || strcasecmp(arg, "json") == 0)) {
 			snprintf(response_buf, response_buf_size,
@@ -213,6 +214,7 @@ ipc_dispatch_command(
 				 "  \"pwm_free\": %s,\n"
 				 "  \"strain_tracker\": %s,\n"
 				 "  \"vignette_mode\": %s,\n"
+				 "  \"cvd_mode\": \"%s\",\n"
 				 "  \"total_active_seconds\": %llu,\n"
 				 "  \"restorative_seconds\": %llu,\n"
 				 "  \"hev_joules_saved\": %.2f,\n"
@@ -252,6 +254,7 @@ ipc_dispatch_command(
 				 state->pwm_free ? "true" : "false",
 				 state->strain_tracker ? "true" : "false",
 				 state->vignette_mode ? "true" : "false",
+				 colorramp_cvd_mode_name(state->cvd_mode),
 				 (unsigned long long)state->total_active_seconds,
 				 (unsigned long long)state->restorative_seconds,
 				 state->hev_joules_saved,
@@ -316,6 +319,7 @@ ipc_dispatch_command(
 			 "Melanopic notch: %s\n"
 			 "PWM-Free: %s\n"
 			 "Strain tracker: %s\n"
+			 "CVD mode: %s\n"
 			 "Myopia protect: %s\n"
 			 "Coupled brightness: %s\n"
 			 "Ambient balancer: %s\n"
@@ -342,6 +346,7 @@ ipc_dispatch_command(
 			 state->melanopic_notch ? "Enabled (480nm cyan notch)" : "Disabled",
 			 state->pwm_free ? "Enabled (100% DC backlight)" : "Disabled",
 			 state->strain_tracker ? "Enabled (input velocity monitor)" : "Disabled",
+			 colorramp_cvd_mode_name(state->cvd_mode),
 			 state->myopia_protect ? "Active (2850K, 60% lum)" : "Inactive",
 			 state->couple_brightness ? "Enabled" : "Disabled",
 			 state->ambient_balancer ? "Enabled (dynamic lux matching)" : "Disabled",
@@ -608,6 +613,30 @@ ipc_dispatch_command(
 			 "Peripheral Glare Shield: %s (ultrawide ambient edge falloff)\n",
 			 state->vignette_mode ? "Enabled" : "Disabled");
 		return 0;
+	} else if (strcasecmp(cmd, "cvd") == 0 || strcasecmp(cmd, "colorblind") == 0 || strcasecmp(cmd, "daltonize") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "none") == 0 || strcasecmp(arg, "0") == 0) {
+			state->cvd_mode = CVD_NONE;
+		} else if (*arg != '\0') {
+			cvd_mode_t m = colorramp_parse_cvd_mode(arg);
+			if (m != CVD_NONE) {
+				state->cvd_mode = m;
+			} else {
+				snprintf(response_buf, response_buf_size,
+					 "Error: Unknown CVD mode '%s'. Choose from: protanopia, deuteranopia, tritanopia, achromatopsia, off\n", arg);
+				return 0;
+			}
+		} else {
+			if (state->cvd_mode != CVD_NONE) {
+				state->cvd_mode = CVD_NONE;
+			} else {
+				state->cvd_mode = CVD_DEUTERANOPIA;
+			}
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Color Vision Deficiency (CVD) Assistance: %s\n",
+			 colorramp_cvd_mode_name(state->cvd_mode));
+		return 0;
 	} else if (strcasecmp(cmd, "stats") == 0 || strcasecmp(cmd, "telemetry") == 0) {
 		double tera_photons = (state->hev_joules_saved * 2.26e18) / 1e12;
 		snprintf(response_buf, response_buf_size,
@@ -827,6 +856,7 @@ ipc_dispatch_command(
 		state->halation_tamer = 0;
 		state->melanopic_notch = 0;
 		state->vignette_mode = 0;
+		state->cvd_mode = CVD_NONE;
 		state->current_preset[0] = '\0';
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size, "Status: Normal\n");
@@ -853,6 +883,7 @@ ipc_dispatch_command(
 			 "  pwm-free [on|off]PWM-free protocol (100%% DC hardware backlight, gamma dimming)\n"
 			 "  strain [on|off]  Input-velocity strain monitor & adaptive tear-film blink pacer\n"
 			 "  vignette [on|off]Peripheral glare shield (ultrawide ambient edge falloff)\n"
+			 "  cvd [MODE|off]   Color vision assistance (protanopia, deuteranopia, tritanopia, achromatopsia)\n"
 			 "  stats            Ocular ergonomics telemetry & HEV blue photon energy saved\n"
 			 "  myopia-protect   Myopia protection mode (2850K, 60%% luminance limit)\n"
 			 "  couple-brightness Couple screen brightness with Kelvin temperature (Kruithof)\n"
@@ -1140,6 +1171,7 @@ ipc_client_dispatch(int argc, char *argv[])
 		"couple-brightness", "couple",
 		"ambient", "contrast", "pacer",
 		"sunlight", "outdoor",
+		"cvd", "colorblind", "daltonize",
 		"quit", "exit", "stop", "help", NULL
 	};
 

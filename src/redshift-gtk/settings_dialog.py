@@ -611,6 +611,84 @@ class SettingsDialog(Gtk.Window):
         card_vig.pack_start(self.vignette_switch, False, False, 0)
         box.pack_start(card_vig, False, False, 0)
 
+        # Color Vision Assistance & Accessibility (CVD) Card (WO-030)
+        card_cvd = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card_cvd.get_style_context().add_class('card-box')
+
+        hdr_cvd = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        v_cvd = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_cvd.set_hexpand(True)
+        lbl_cvd = Gtk.Label(label=_("👁️ Color Vision Assistance & Accessibility (CVD)"))
+        lbl_cvd.get_style_context().add_class('card-title')
+        lbl_cvd.set_xalign(0.0)
+        desc_cvd = Gtk.Label(label=_(
+            "Applies Daltonization gamma transfer curves to optimize luminance contrast separation\n"
+            "for Protanopia (red-weak), Deuteranopia (green-weak), Tritanopia (blue-weak), and Achromatopsia."
+        ))
+        desc_cvd.get_style_context().add_class('card-desc')
+        desc_cvd.set_xalign(0.0)
+        desc_cvd.set_line_wrap(True)
+        v_cvd.pack_start(lbl_cvd, False, False, 0)
+        v_cvd.pack_start(desc_cvd, False, False, 0)
+        hdr_cvd.pack_start(v_cvd, True, True, 0)
+
+        self.cvd_combo = Gtk.ComboBoxText()
+        self.cvd_combo.append('none', _("Off (Standard Circadian)"))
+        self.cvd_combo.append('protanopia', _("Protanopia (L-Cone Boost)"))
+        self.cvd_combo.append('deuteranopia', _("Deuteranopia (M-Cone Contrast)"))
+        self.cvd_combo.append('tritanopia', _("Tritanopia (S-Cone Shift)"))
+        self.cvd_combo.append('achromatopsia', _("Achromatopsia (S-Curve)"))
+        self.cvd_combo.set_active_id('none')
+        self.cvd_combo.set_valign(Gtk.Align.CENTER)
+        self.cvd_combo.connect('changed', self.on_cvd_combo_changed)
+        hdr_cvd.pack_start(self.cvd_combo, False, False, 0)
+        card_cvd.pack_start(hdr_cvd, False, False, 0)
+
+        # Color Contrast Verification Strip
+        strip_lbl = Gtk.Label(label=_("Color Contrast Verification Palette:"))
+        strip_lbl.get_style_context().add_class('card-desc')
+        strip_lbl.set_xalign(0.0)
+        card_cvd.pack_start(strip_lbl, False, False, 0)
+
+        strip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        swatches = [
+            ((0.85, 0.22, 0.23), _("Red")),
+            ((0.18, 0.80, 0.44), _("Green")),
+            ((0.20, 0.60, 0.86), _("Blue")),
+            ((0.95, 0.77, 0.06), _("Yellow")),
+            ((0.90, 0.49, 0.13), _("Orange")),
+            ((0.61, 0.35, 0.71), _("Violet")),
+        ]
+        for rgb, name in swatches:
+            s_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            s_box.set_hexpand(True)
+            da = Gtk.DrawingArea()
+            da.set_size_request(-1, 20)
+            def _draw_swatch(widget, cr, col=rgb):
+                alloc = widget.get_allocation()
+                radius = 4.0
+                x, y, w, h = 0, 0, alloc.width, alloc.height
+                cr.new_sub_path()
+                cr.arc(x + w - radius, y + radius, radius, -1.5707963, 0)
+                cr.arc(x + w - radius, y + h - radius, radius, 0, 1.5707963)
+                cr.arc(x + radius, y + h - radius, radius, 1.5707963, 3.1415926)
+                cr.arc(x + radius, y + radius, radius, 3.1415926, 4.7123889)
+                cr.close_path()
+                cr.set_source_rgb(*col)
+                cr.fill_preserve()
+                cr.set_source_rgba(0, 0, 0, 0.3)
+                cr.set_line_width(1.0)
+                cr.stroke()
+                return False
+            da.connect('draw', _draw_swatch)
+            lbl = Gtk.Label(label=name)
+            lbl.get_style_context().add_class('card-desc')
+            s_box.pack_start(da, True, True, 0)
+            s_box.pack_start(lbl, False, False, 0)
+            strip_box.pack_start(s_box, True, True, 0)
+        card_cvd.pack_start(strip_box, False, False, 0)
+        box.pack_start(card_cvd, False, False, 0)
+
         # Color-Critical Pause Quick Action
         card5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         card5.get_style_context().add_class('card-box')
@@ -821,6 +899,10 @@ class SettingsDialog(Gtk.Window):
         val = switch.get_active()
         self.send_ipc(f'vignette {"on" if val else "off"}')
 
+    def on_cvd_combo_changed(self, combo):
+        active_id = combo.get_active_id() or 'none'
+        self.send_ipc(f'cvd {active_id}')
+
     def on_schedule_changed(self, combo):
         active_id = combo.get_active_id()
         if active_id == 'solar':
@@ -857,6 +939,7 @@ melanopic-notch={'true' if self.notch_switch.get_active() else 'false'}
 pwm-free={'true' if self.pwm_switch.get_active() else 'false'}
 strain-tracker={'true' if self.strain_switch.get_active() else 'false'}
 vignette-mode={'true' if self.vignette_switch.get_active() else 'false'}
+cvd-mode={self.cvd_combo.get_active_id() or 'none'}
 pacer-interval={1200 if self.pacer_switch.get_active() else 0}
 adjustment-method=randr
 location-provider=manual
@@ -905,6 +988,10 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
                             self.lat_entry.set_text(cfg['manual']['lat'])
                         if 'lon' in cfg.get('manual', {}):
                             self.lon_entry.set_text(cfg['manual']['lon'])
+                        if 'cvd-mode' in cfg[sec]:
+                            self.cvd_combo.set_active_id(cfg[sec]['cvd-mode'])
+                        elif 'cvd' in cfg[sec]:
+                            self.cvd_combo.set_active_id(cfg[sec]['cvd'])
                     break
                 except Exception:
                     pass
@@ -969,6 +1056,13 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         self.vignette_switch.handler_block_by_func(self.on_vignette_toggled)
         self.vignette_switch.set_active(_bool(st.get('vignette_mode')))
         self.vignette_switch.handler_unblock_by_func(self.on_vignette_toggled)
+
+        cvd = st.get('cvd_mode', 'none')
+        if not cvd or cvd == '':
+            cvd = 'none'
+        self.cvd_combo.handler_block_by_func(self.on_cvd_combo_changed)
+        self.cvd_combo.set_active_id(cvd)
+        self.cvd_combo.handler_unblock_by_func(self.on_cvd_combo_changed)
 
         tot = int(st.get('total_active_seconds', 0))
         rst = int(st.get('restorative_seconds', 0))

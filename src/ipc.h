@@ -61,6 +61,7 @@ typedef struct {
 	int pwm_free;
 	int strain_tracker;
 	int vignette_mode;
+	cvd_mode_t cvd_mode;
 	uint64_t total_active_seconds;
 	uint64_t restorative_seconds;
 	double hev_joules_saved;

@@ -195,18 +195,19 @@ int main(void)
 	       r[0], r[ramp_size - 1]);
 
 	/* Test 9: Circadian Heart Emoji Mapping */
-	assert(strcmp(colorramp_get_heart_emoji(6500, 1, 0, 0, 0), "🖤") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(3000, 0, 1, 0, 0), "❤️") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(4000, 0, 0, 0, 1), "🤎") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(7500, 0, 0, 1, 0), "💙") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(1200, 0, 0, 0, 0), "❤️") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(1900, 0, 0, 0, 0), "❤️‍🔥") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(2700, 0, 0, 0, 0), "🧡") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(3400, 0, 0, 0, 0), "💛") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(4200, 0, 0, 0, 0), "💛") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(5500, 0, 0, 0, 0), "🤍") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 0, 0, 0), "🤍") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(8000, 0, 0, 0, 0), "💙") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 1, 0, 0, 0, 0), "🖤") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 1, 0, 0, 0), "❤️") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(4000, 0, 0, 0, 1, 0), "🤎") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 0, 0, 0, CVD_PROTANOPIA), "💜") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(7500, 0, 0, 1, 0, 0), "💙") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(1200, 0, 0, 0, 0, 0), "❤️") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(1900, 0, 0, 0, 0, 0), "❤️‍🔥") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(2700, 0, 0, 0, 0, 0), "🧡") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(3400, 0, 0, 0, 0, 0), "💛") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(4200, 0, 0, 0, 0, 0), "💛") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(5500, 0, 0, 0, 0, 0), "🤍") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 0, 0, 0, 0), "🤍") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(8000, 0, 0, 0, 0, 0), "💙") == 0);
 	printf("  Circadian Heart Emoji mapping verified!\n");
 
 	/* Test 10: E-Paper / Monochromatic Reading Mode */
@@ -258,6 +259,66 @@ int main(void)
 	assert(b[ramp_size - 1] < 45000 && b[ramp_size - 1] > 40000);
 	assert(r[ramp_size - 1] == UINT16_MAX);
 	printf("  Melanopic notch filter verified: cyan-blue attenuated to %u\n", b[ramp_size - 1]);
+
+	/* Test 13: Protanopia Assistance (Red Lumen Boost) */
+	color_setting_t protan_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.cvd_mode = CVD_PROTANOPIA
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &protan_setting);
+	/* Red channel boosted significantly above green in midtones */
+	assert(r[ramp_size / 2] > g[ramp_size / 2] * 1.5);
+	assert(r[0] > 2000); /* Lifted red black floor */
+	printf("  Protanopia assistance verified: red midtone boost (%u) vs green (%u)\n",
+	       r[ramp_size / 2], g[ramp_size / 2]);
+
+	/* Test 14: Deuteranopia Assistance (Luminance Contrast Split) */
+	color_setting_t deutan_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.cvd_mode = CVD_DEUTERANOPIA
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &deutan_setting);
+	/* Red boosted, green attenuated for unambiguous brightness differentiation */
+	assert(r[ramp_size / 2] > 40000);
+	assert(g[ramp_size / 2] < 25000);
+	printf("  Deuteranopia assistance verified: red (%u) vs green (%u) luminance contrast split\n",
+	       r[ramp_size / 2], g[ramp_size / 2]);
+
+	/* Test 15: Tritanopia Assistance (Blue-Yellow Contrast Shift) */
+	color_setting_t tritan_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.cvd_mode = CVD_TRITANOPIA
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &tritan_setting);
+	assert(b[ramp_size / 2] > g[ramp_size / 2]);
+	printf("  Tritanopia assistance verified: blue (%u) vs green (%u)\n",
+	       b[ramp_size / 2], g[ramp_size / 2]);
+
+	/* Test 16: Achromatopsia Assistance (High-Contrast S-Curve Monochromacy) */
+	color_setting_t achromat_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.cvd_mode = CVD_ACHROMATOPSIA
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &achromat_setting);
+	/* All channels identical (monochrome) */
+	assert(r[ramp_size / 2] == g[ramp_size / 2]);
+	assert(g[ramp_size / 2] == b[ramp_size / 2]);
+	/* High contrast: deep blacks below midtone, high ceiling above midtone */
+	assert(r[ramp_size / 5] < 10000);
+	assert(r[(ramp_size * 4) / 5] > 55000);
+	printf("  Achromatopsia assistance verified: pure monochrome S-curve (mid=%u)\n", r[ramp_size / 2]);
 
 	printf("test_colorramp PASSED!\n");
 	return 0;

@@ -181,6 +181,7 @@ print_help(const char *program_name)
 		"  pwm-free [on|off]\tPWM-Free Protocol (100% DC backlight dimming)\n"
 		"  strain [on|off]\tInput-Velocity Strain & Blink Pacer\n"
 		"  vignette [on|off]\tPeripheral Glare Shield (ultrawide edge falloff)\n"
+		"  cvd [MODE|off]\tColor Vision Assistance (protanopia, deuteranopia, tritanopia, achromatopsia)\n"
 		"  stats\t\tShow ocular ergonomics & HEV blue energy telemetry\n"
 		"  preset NAME\tActivate Kelvin preset (candle, halogen, sunlight...)\n"
 		"  presets\tList all Kelvin presets and color temperatures\n"
@@ -658,6 +659,7 @@ parse_config_file_option(
 		   strcasecmp(key, "pwm-free") == 0 ||
 		   strcasecmp(key, "strain-tracker") == 0 ||
 		   strcasecmp(key, "vignette-mode") == 0 ||
+		   strcasecmp(key, "cvd-mode") == 0 ||
 		   strcasecmp(key, "pacer-interval") == 0) {
 		/* Handled by daemon runtime state / GUI settings */
 	} else {

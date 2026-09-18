@@ -60,7 +60,7 @@ except (ImportError, ValueError):
 
 _ = gettext.gettext
 
-def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=False, reading=False):
+def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=False, reading=False, cvd=False):
     """Map color temperature and mode to the closest heart emoji and themed SVG icon."""
     if inhibited:
         return "🖤", "jarheart-status-off"
@@ -68,6 +68,8 @@ def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=F
         return "❤️", "jarheart-status-darkroom"
     if reading:
         return "🤎", "jarheart-status-ember"
+    if cvd:
+        return "💜", "jarheart-status-daylight"
     if sunlight or temp >= 7200:
         return "💙", "jarheart-status-sunlight"
     if temp <= 1600:
@@ -323,6 +325,27 @@ class RedshiftStatusIcon(object):
         suspend_menu_item.set_submenu(suspend_menu)
         self.status_menu.append(suspend_menu_item)
 
+        # Add Color Vision Assistance (CVD) submenu
+        cvd_menu_item = Gtk.MenuItem.new_with_label(_('👁️ Color Vision Assistance (CVD)'))
+        self.cvd_menu = Gtk.Menu()
+        self.cvd_radio_items = {}
+        first_group = None
+        for mode_id, label in [
+            ('none', _('Off (Standard Circadian)')),
+            ('protanopia', _('Protanopia (Red-Weak / L-Cone)')),
+            ('deuteranopia', _('Deuteranopia (Green-Weak / M-Cone)')),
+            ('tritanopia', _('Tritanopia (Blue-Weak / S-Cone)')),
+            ('achromatopsia', _('Achromatopsia (Monochrome S-Curve)')),
+        ]:
+            r_item = Gtk.RadioMenuItem.new_with_label_from_widget(first_group, label)
+            if first_group is None:
+                first_group = r_item
+            r_item.connect('toggled', self.cvd_select_cb, mode_id)
+            self.cvd_radio_items[mode_id] = r_item
+            self.cvd_menu.append(r_item)
+        cvd_menu_item.set_submenu(self.cvd_menu)
+        self.status_menu.append(cvd_menu_item)
+
         self.status_menu.append(Gtk.SeparatorMenuItem())
 
         # Add Preferences & Settings modal action
@@ -572,6 +595,11 @@ class RedshiftStatusIcon(object):
         self.send_ipc('reset')
         self.update_status_icon()
 
+    def cvd_select_cb(self, widget, mode_id):
+        if widget.get_active():
+            self.send_ipc(f'cvd {mode_id}')
+            self.update_status_icon()
+
     def reenable_cb(self):
         """Callback to reenable redshift when a suspend timer expires."""
         self._controller.set_inhibit(False)
@@ -631,6 +659,17 @@ class RedshiftStatusIcon(object):
                 self.vignette_item.set_active(vignette_active)
                 self.vignette_item.handler_unblock_by_func(self.vignette_toggle_cb)
                 self._sync_vignette_overlay(vignette_active)
+
+                cvd_mode = st.get('cvd_mode', 'none')
+                if not cvd_mode or cvd_mode == '':
+                    cvd_mode = 'none'
+                target_key = 'none' if cvd_mode in ('none', 'off') else cvd_mode
+                if target_key in self.cvd_radio_items:
+                    for k, r in self.cvd_radio_items.items():
+                        r.handler_block_by_func(self.cvd_select_cb)
+                    self.cvd_radio_items[target_key].set_active(True)
+                    for k, r in self.cvd_radio_items.items():
+                        r.handler_unblock_by_func(self.cvd_select_cb)
             except Exception:
                 pass
 
@@ -684,6 +723,7 @@ class RedshiftStatusIcon(object):
         movie = False
         sunlight = False
         reading = False
+        cvd_mode = None
         raw = self.send_ipc('status -j')
         if raw:
             try:
@@ -692,13 +732,15 @@ class RedshiftStatusIcon(object):
                 movie = st.get('movie_mode') in (True, 'true', 1, '1')
                 sunlight = st.get('sunlight_mode') in (True, 'true', 1, '1')
                 reading = st.get('reading_mode') in (True, 'true', 1, '1')
+                cvd_mode = st.get('cvd_mode', 'none')
                 vignette = (st.get('vignette_mode') or st.get('peripheral_vignette')) in (True, 'true', 1, '1')
                 self._sync_vignette_overlay(vignette)
                 temp = st.get('temperature', temp)
             except Exception:
                 pass
 
-        emoji, icon_name = get_heart_for_state(temp, inhibited, darkroom, movie, sunlight, reading)
+        cvd_active = cvd_mode not in (None, '', 'none', 'off')
+        emoji, icon_name = get_heart_for_state(temp, inhibited, darkroom, movie, sunlight, reading, cvd=cvd_active)
 
         # Fallback to base icon if specific temperature icon is missing
         if not self.icon_theme.has_icon(icon_name):

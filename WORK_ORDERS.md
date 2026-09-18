@@ -169,6 +169,13 @@ In the engineering of display-altering systems software, software defects immedi
 | **WO-021** | Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restorer | P2 | Ergonomics / UX | **COMPLETED** | 20m ciliary relax pacer with screen breathe & notify |
 | **WO-022** | Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule | P2 | Circadian | **COMPLETED** | Morning alertness -> afternoon comfort -> night |
 | **WO-023** | Ambient Contrast & Eye-Level Illuminance Balancer (ALS Dynamic) | P2 | Sensor / HW | **COMPLETED** | Dynamic contrast matching screen to room lux |
+| **WO-024** | Preferences & Settings Modal Recursive Visibility & Dedicated Launcher | P1 | Desktop / GUI | **COMPLETED** | `SettingsDialog.present()`, `jarheart-settings` |
+| **WO-025** | High-Ambient Sunlight Anti-Glare Mode & Circadian Heart Emoji Ecosystem | P1 | Ergonomics / UX | **COMPLETED** | 7500K toe-lift, 7 heart emojis, dynamic tray icons |
+| **WO-026** | E-Paper Reading Mode (Monochromatic Warm Parchment) | P1 | Ocular Health | **COMPLETED** | Rec.709 $Y$, parchment white point, 🤎 emoji |
+| **WO-027** | Astigmatism Halation Tamer & 480nm Melanopic Cyan Notch Filter | P1 | Ergonomics | **COMPLETED** | Dynamic range compression, 35% 480nm suppression |
+| **WO-028** | PWM-Free Protocol & Input-Velocity Strain Adaptive Blink Pacer | P1 | Hardware / UX | **COMPLETED** | 100% DC backlight dimming, `/proc/interrupts` pacer |
+| **WO-029** | Peripheral Glare Shield & Ocular Health Photon Telemetry Scoreboard | P1 | Ergonomics / Telemetry | **COMPLETED** | Cairo transparent vignette, HEV Joule tracking |
+| **WO-030** | Color Vision Deficiency (CVD) Assistance & Daltonization Suite | P1 | Accessibility | **COMPLETED** | Protan, Deutan, Tritan, Achromat curves, 💜 emoji |
 
 ---
 
@@ -654,6 +661,30 @@ In the engineering of display-altering systems software, software defects immedi
 
 ---
 
+### WO-030: Color Vision Deficiency (CVD) Assistance & Daltonization Suite
+- **Status**: `COMPLETED`
+- **Priority**: `P1 - High`
+- **Type**: `Ocular Accessibility / Optical Filtering`
+- **Prerequisites**: WO-008, WO-019, WO-025, WO-026
+- **Scientific Foundation**: Congenital color vision deficiencies affect approximately 8% of males and 0.5% of females.
+  - *Protanopia* (L-cone deficit): Severe loss of red photon sensitivity, shifting reds towards dark grays/blacks and confusing them with greens. Non-linear red luminance expansion ($Y_R = 0.04 + 0.96 \cdot Y^{0.65} \times 1.25$) and green attenuation ($Y_G = 0.85 \cdot Y$) restores perceived luminance contrast.
+  - *Deuteranopia* (M-cone deficit): Red-green confusion due to overlapping spectral sensitivity. Imposing an artificial luminance contrast split between red ($Y^{0.78} \times 1.15$) and green ($Y^{1.25} \times 0.78$) enables immediate luminance-based color differentiation.
+  - *Tritanopia* (S-cone deficit): Blue-yellow confusion. Boost red ($Y^{0.85} \times 1.12$) and blue ($Y^{0.70} \times 1.20$), attenuating green ($Y^{1.10} \times 0.88$).
+  - *Achromatopsia* (Rod monochromacy): Total loss of cone function. A high-contrast normalized 7-point logistic S-curve ($Y_{hc} = \frac{S(Y) - S(0)}{S(1) - S(0)}$ where $S(x) = \frac{1}{1 + e^{-7(x - 0.5)}}$) maximizes tonal separation between adjacent shades of gray.
+- **Scope & Technical Plan**:
+  1. *Non-Linear Gamma Transfer Functions*: In `src/colorramp.c`, implement mathematical curves for Protanopia, Deuteranopia, Tritanopia, and Achromatopsia across integer 16-bit and float ramps, respecting halation tamer and gamma.
+  2. *Circadian Heart Indicator*: Map active CVD mode to `"💜"` (Purple Heart) emoji via `colorramp_get_heart_emoji` and themed daylight icon.
+  3. *CLI & IPC Commands*: Implement `jarheart cvd [protanopia|deuteranopia|tritanopia|achromatopsia|off]` (aliases `colorblind`, `daltonize`), `jarheart status -j` (`"cvd_mode"`), and include in `reset`.
+  4. *Desktop & GUI Integration*:
+     - Tray Icon: Add `👁️ Color Vision Assistance (CVD)` radio submenu to GTK status icon.
+     - Settings Modal: Add dedicated CVD card in Tab 2 with live dropdown selector and live RGB/CMYK preview swatch strip.
+- **Verification Protocol**:
+  - `tests/test_colorramp.c`: Verified red lumen boost (midtones > 1.5x green, floor > 2000), deuteranopic contrast split, tritanopic blue boost, and achromatopsic high-contrast S-curve.
+  - `tests/test_ipc.c`: Tested IPC command dispatch, JSON status verification, mode switching, and clean restoration on reset.
+  - Unit test suite passed 5/5 in 0.04s.
+
+---
+
 ## 5. Architectural Verification Matrix
 
 | Verification Vector | Tool / Command | Invariant Requirement | Status |
@@ -664,10 +695,11 @@ In the engineering of display-altering systems software, software defects immedi
 | **Darkroom Photon Isolation** | `XRRGetCrtcGamma` (CRTC 0) | `Green=0, Blue=0` | **PASS (Verified)** |
 | **Movie Mode Highlight Floor**| `XRRGetCrtcGamma` (CRTC 0) | Toe lift `Y^0.88`, Sky blue preservation | **PASS (Verified)** |
 | **Sunlight Anti-Glare Lift**  | `tests/test_colorramp` | Black floor lifted (`R[0]>5000`), `B[max]=65535` | **PASS (Verified)** |
-| **Circadian Heart Indicators**| `status -j` & GTK Indicator | 🖤, ❤️, ❤️‍🔥, 🧡, 💛, 🤍, 💙, 🤎 matching Kelvin/mode | **PASS (Verified)** |
+| **Circadian Heart Indicators**| `status -j` & GTK Indicator | 🖤, ❤️, ❤️‍🔥, 🧡, 💛, 🤍, 💙, 🤎, 💜 matching Kelvin/mode | **PASS (Verified)** |
 | **E-Paper Parchment Curve**   | `tests/test_colorramp` | Rec.709 $Y$, parchment ratios $G/R=0.94, B/R=0.82$ | **PASS (Verified)** |
 | **Astigmatism Halation Floor**| `tests/test_colorramp` | $R[0] \ge 3200, R[max] \le 57000$ (5% floor, 86% peak)| **PASS (Verified)** |
 | **Melanopic Notch Filter**    | `tests/test_colorramp` | Selective 35% suppression on 480nm cyan band | **PASS (Verified)** |
+| **CVD Daltonization Curves**  | `tests/test_colorramp` | Protan, Deutan, Tritan, Achromat S-curve | **PASS (Verified)** |
 | **Click-Through Vignette**    | `statusicon.py` (Cairo) | Empty Gdk input region, non-blocking click-through | **PASS (Verified)** |
 | **HEV Photon Telemetry**      | `jarheart stats` / JSON | Accurate Joule and Tera-photon integration | **PASS (Verified)** |
 | **Compositor Passthrough**    | `compiz --replace` | Zero tearing, CRTC downstream of OpenGL | **PASS (Verified)** |

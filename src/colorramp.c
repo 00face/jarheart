@@ -312,11 +312,12 @@ colorramp_get_presets(void)
 }
 
 const char *
-colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight, int reading)
+colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight, int reading, int cvd_mode)
 {
 	if (disabled) return "🖤";
 	if (darkroom) return "❤️";
 	if (reading) return "🤎";
+	if (cvd_mode != CVD_NONE) return "💜";
 	if (sunlight || temperature >= 7200) return "💙";
 	if (temperature <= 1600) return "❤️";
 	if (temperature <= 2200) return "❤️‍🔥";
@@ -324,6 +325,37 @@ colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunli
 	if (temperature <= 3500) return "💛";
 	if (temperature <= 4500) return "💛";
 	return "🤍";
+}
+
+const char *
+colorramp_cvd_mode_name(cvd_mode_t mode)
+{
+	switch (mode) {
+	case CVD_PROTANOPIA: return "protanopia";
+	case CVD_DEUTERANOPIA: return "deuteranopia";
+	case CVD_TRITANOPIA: return "tritanopia";
+	case CVD_ACHROMATOPSIA: return "achromatopsia";
+	default: return "none";
+	}
+}
+
+cvd_mode_t
+colorramp_parse_cvd_mode(const char *str)
+{
+	if (str == NULL || *str == '\0') return CVD_NONE;
+	if (strcasecmp(str, "protanopia") == 0 || strcasecmp(str, "protan") == 0 || strcasecmp(str, "red") == 0) {
+		return CVD_PROTANOPIA;
+	}
+	if (strcasecmp(str, "deuteranopia") == 0 || strcasecmp(str, "deutan") == 0 || strcasecmp(str, "green") == 0) {
+		return CVD_DEUTERANOPIA;
+	}
+	if (strcasecmp(str, "tritanopia") == 0 || strcasecmp(str, "tritan") == 0 || strcasecmp(str, "blue") == 0) {
+		return CVD_TRITANOPIA;
+	}
+	if (strcasecmp(str, "achromatopsia") == 0 || strcasecmp(str, "mono") == 0 || strcasecmp(str, "monochrome") == 0 || strcasecmp(str, "grayscale") == 0) {
+		return CVD_ACHROMATOPSIA;
+	}
+	return CVD_NONE;
 }
 
 static void
@@ -406,6 +438,77 @@ colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 			double r = pow(Y * setting->brightness * paper_wr, 1.0 / setting->gamma[0]);
 			double g = pow(Y * setting->brightness * paper_wg, 1.0 / setting->gamma[1]);
 			double b = pow(Y * setting->brightness * paper_wb, 1.0 / setting->gamma[2]);
+
+			double r_out = fmin(fmax(r, 0.0), 1.0) * (UINT16_MAX + 1);
+			double g_out = fmin(fmax(g, 0.0), 1.0) * (UINT16_MAX + 1);
+			double b_out = fmin(fmax(b, 0.0), 1.0) * (UINT16_MAX + 1);
+			gamma_r[i] = (uint16_t)(r_out >= UINT16_MAX ? UINT16_MAX : r_out);
+			gamma_g[i] = (uint16_t)(g_out >= UINT16_MAX ? UINT16_MAX : g_out);
+			gamma_b[i] = (uint16_t)(b_out >= UINT16_MAX ? UINT16_MAX : b_out);
+		}
+		return;
+	}
+
+	if (setting->cvd_mode != CVD_NONE) {
+		/* Color Vision Deficiency (CVD) Assistance Curves:
+		   Non-linear channel compensation for Protanopia, Deuteranopia, Tritanopia, and Achromatopsia */
+		for (int i = 0; i < size; i++) {
+			double Y = (double)gamma_r[i] / (UINT16_MAX + 1);
+			if (setting->halation_tamer) {
+				Y = 0.05 + 0.81 * Y;
+			}
+			double r = 0.0, g = 0.0, b = 0.0;
+			switch (setting->cvd_mode) {
+			case CVD_PROTANOPIA: {
+				/* Protanopia (L-cone / red-weak defect):
+				   Eliminate red lumen deficit; boost red luminance out of dark floor
+				   and attenuate green to separate red from green/black */
+				double yr = fmin(1.0, pow(Y, 0.65) * 1.25);
+				yr = 0.04 + 0.96 * yr;
+				double yg = Y * 0.85;
+				double yb = fmin(1.0, pow(Y, 0.90) * 1.05);
+				r = pow(yr * setting->brightness, 1.0 / setting->gamma[0]);
+				g = pow(yg * setting->brightness, 1.0 / setting->gamma[1]);
+				b = pow(yb * setting->brightness, 1.0 / setting->gamma[2]);
+				break;
+			}
+			case CVD_DEUTERANOPIA: {
+				/* Deuteranopia (M-cone / green-weak defect):
+				   Impose strong artificial luminance contrast between red and green
+				   so they are instantly differentiated by brightness alone */
+				double yr = fmin(1.0, pow(Y, 0.78) * 1.15);
+				double yg = fmin(1.0, pow(Y, 1.25) * 0.78);
+				double yb = fmin(1.0, Y * 1.05);
+				r = pow(yr * setting->brightness, 1.0 / setting->gamma[0]);
+				g = pow(yg * setting->brightness, 1.0 / setting->gamma[1]);
+				b = pow(yb * setting->brightness, 1.0 / setting->gamma[2]);
+				break;
+			}
+			case CVD_TRITANOPIA: {
+				/* Tritanopia (S-cone / blue-weak defect):
+				   Boost red and blue saturation, attenuate cyan-green crossovers */
+				double yr = fmin(1.0, pow(Y, 0.85) * 1.12);
+				double yg = fmin(1.0, pow(Y, 1.10) * 0.88);
+				double yb = fmin(1.0, pow(Y, 0.70) * 1.20);
+				r = pow(yr * setting->brightness, 1.0 / setting->gamma[0]);
+				g = pow(yg * setting->brightness, 1.0 / setting->gamma[1]);
+				b = pow(yb * setting->brightness, 1.0 / setting->gamma[2]);
+				break;
+			}
+			case CVD_ACHROMATOPSIA: {
+				/* Achromatopsia / Monochromacy:
+				   High-contrast S-curve tone mapping for maximal grayscale separation */
+				double s = 1.0 / (1.0 + exp(-7.0 * (Y - 0.5)));
+				double s0 = 1.0 / (1.0 + exp(3.5));
+				double s1 = 1.0 / (1.0 + exp(-3.5));
+				double y_hc = (s - s0) / (s1 - s0);
+				y_hc = fmin(fmax(y_hc, 0.0), 1.0);
+				r = g = b = pow(y_hc * setting->brightness, 1.0 / setting->gamma[0]);
+				break;
+			}
+			default:
+				break;
+			}
 
 			double r_out = fmin(fmax(r, 0.0), 1.0) * (UINT16_MAX + 1);
 			double g_out = fmin(fmax(g, 0.0), 1.0) * (UINT16_MAX + 1);
@@ -521,6 +624,61 @@ colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 			double g = pow(Y * setting->brightness * paper_wg, 1.0 / setting->gamma[1]);
 			double b = pow(Y * setting->brightness * paper_wb, 1.0 / setting->gamma[2]);
 
+			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
+			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
+			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);
+		}
+		return;
+	}
+
+	if (setting->cvd_mode != CVD_NONE) {
+		for (int i = 0; i < size; i++) {
+			double Y = (double)gamma_r[i];
+			if (setting->halation_tamer) {
+				Y = 0.05 + 0.81 * Y;
+			}
+			double r = 0.0, g = 0.0, b = 0.0;
+			switch (setting->cvd_mode) {
+			case CVD_PROTANOPIA: {
+				double yr = fmin(1.0, pow(Y, 0.65) * 1.25);
+				yr = 0.04 + 0.96 * yr;
+				double yg = Y * 0.85;
+				double yb = fmin(1.0, pow(Y, 0.90) * 1.05);
+				r = pow(yr * setting->brightness, 1.0 / setting->gamma[0]);
+				g = pow(yg * setting->brightness, 1.0 / setting->gamma[1]);
+				b = pow(yb * setting->brightness, 1.0 / setting->gamma[2]);
+				break;
+			}
+			case CVD_DEUTERANOPIA: {
+				double yr = fmin(1.0, pow(Y, 0.78) * 1.15);
+				double yg = fmin(1.0, pow(Y, 1.25) * 0.78);
+				double yb = fmin(1.0, Y * 1.05);
+				r = pow(yr * setting->brightness, 1.0 / setting->gamma[0]);
+				g = pow(yg * setting->brightness, 1.0 / setting->gamma[1]);
+				b = pow(yb * setting->brightness, 1.0 / setting->gamma[2]);
+				break;
+			}
+			case CVD_TRITANOPIA: {
+				double yr = fmin(1.0, pow(Y, 0.85) * 1.12);
+				double yg = fmin(1.0, pow(Y, 1.10) * 0.88);
+				double yb = fmin(1.0, pow(Y, 0.70) * 1.20);
+				r = pow(yr * setting->brightness, 1.0 / setting->gamma[0]);
+				g = pow(yg * setting->brightness, 1.0 / setting->gamma[1]);
+				b = pow(yb * setting->brightness, 1.0 / setting->gamma[2]);
+				break;
+			}
+			case CVD_ACHROMATOPSIA: {
+				double s = 1.0 / (1.0 + exp(-7.0 * (Y - 0.5)));
+				double s0 = 1.0 / (1.0 + exp(3.5));
+				double s1 = 1.0 / (1.0 + exp(-3.5));
+				double y_hc = (s - s0) / (s1 - s0);
+				y_hc = fmin(fmax(y_hc, 0.0), 1.0);
+				r = g = b = pow(y_hc * setting->brightness, 1.0 / setting->gamma[0]);
+				break;
+			}
+			default:
+				break;
+			}
 			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
 			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
 			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);

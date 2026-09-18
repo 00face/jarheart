@@ -86,6 +86,7 @@ test_command_dispatch(void)
 	assert(strstr(resp, "\"pwm_free\": false") != NULL);
 	assert(strstr(resp, "\"strain_tracker\": false") != NULL);
 	assert(strstr(resp, "\"vignette_mode\": false") != NULL);
+	assert(strstr(resp, "\"cvd_mode\": \"none\"") != NULL);
 
 	/* Test 'status --xfce' */
 	r = ipc_dispatch_command("status --xfce", &state, resp, sizeof(resp));
@@ -337,6 +338,33 @@ test_command_dispatch(void)
 	assert(strstr(resp, "Active Exposure:       2 hours, 0 mins") != NULL);
 	assert(strstr(resp, "Restorative (<3400K):  1 hours, 0 mins") != NULL);
 
+	/* Test 'cvd' */
+	r = ipc_dispatch_command("cvd protanopia", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.cvd_mode == CVD_PROTANOPIA);
+	assert(strstr(resp, "protanopia") != NULL);
+
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"cvd_mode\": \"protanopia\"") != NULL);
+	assert(strstr(resp, "\"emoji\": \"💜\"") != NULL);
+
+	r = ipc_dispatch_command("cvd deutan", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.cvd_mode == CVD_DEUTERANOPIA);
+
+	r = ipc_dispatch_command("cvd tritan", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.cvd_mode == CVD_TRITANOPIA);
+
+	r = ipc_dispatch_command("cvd mono", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.cvd_mode == CVD_ACHROMATOPSIA);
+
+	r = ipc_dispatch_command("cvd off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.cvd_mode == CVD_NONE);
+
 	/* Test 'reset' clears presets and modes */
 	state.darkroom = 1;
 	state.movie_mode = 1;
@@ -345,6 +373,7 @@ test_command_dispatch(void)
 	state.halation_tamer = 1;
 	state.melanopic_notch = 1;
 	state.vignette_mode = 1;
+	state.cvd_mode = CVD_PROTANOPIA;
 	state.override_temp = 2000;
 	r = ipc_dispatch_command("reset", &state, resp, sizeof(resp));
 	assert(r == 0);
@@ -355,6 +384,7 @@ test_command_dispatch(void)
 	assert(state.halation_tamer == 0);
 	assert(state.melanopic_notch == 0);
 	assert(state.vignette_mode == 0);
+	assert(state.cvd_mode == CVD_NONE);
 	assert(state.override_temp == 0);
 	assert(state.current_preset[0] == '\0');
 	assert(strstr(resp, "Status: Normal") != NULL);

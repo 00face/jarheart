@@ -32,7 +32,9 @@ typedef struct {
 
 const kelvin_preset_t *colorramp_find_preset(const char *name);
 const kelvin_preset_t *colorramp_get_presets(void);
-const char *colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight, int reading);
+const char *colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight, int reading, int cvd_mode);
+const char *colorramp_cvd_mode_name(cvd_mode_t mode);
+cvd_mode_t colorramp_parse_cvd_mode(const char *str);
 
 void colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 		    int size, const color_setting_t *setting);

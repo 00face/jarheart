@@ -982,6 +982,7 @@ run_continual_mode(const location_provider_t *provider,
 		}
 		target_interp.halation_tamer = ipc_state.halation_tamer;
 		target_interp.melanopic_notch = ipc_state.melanopic_notch;
+		target_interp.cvd_mode = ipc_state.cvd_mode;
 
 		/* Coupled brightness: dynamically scale brightness along Kruithof comfort curve */
 		if (ipc_state.couple_brightness && !disabled && !ipc_state.darkroom && !ipc_state.sunlight_mode) {

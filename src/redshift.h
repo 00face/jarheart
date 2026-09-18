@@ -41,6 +41,15 @@ typedef enum {
 	PERIOD_TRANSITION
 } period_t;
 
+/* Color vision deficiency (CVD) assistance modes */
+typedef enum {
+	CVD_NONE = 0,
+	CVD_PROTANOPIA,
+	CVD_DEUTERANOPIA,
+	CVD_TRITANOPIA,
+	CVD_ACHROMATOPSIA
+} cvd_mode_t;
+
 /* Color setting */
 typedef struct {
 	int temperature;
@@ -52,6 +61,7 @@ typedef struct {
 	int reading_mode;
 	int halation_tamer;
 	int melanopic_notch;
+	cvd_mode_t cvd_mode;
 } color_setting_t;
 
 /* Program modes. */

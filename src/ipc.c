@@ -49,11 +49,81 @@ static const char *period_names_ipc[] = {
 };
 
 static crtc_calibration_fn g_crtc_calibration_cb = NULL;
+static monitor_set_enable_fn g_monitor_enable_cb = NULL;
+static monitor_set_brightness_fn g_monitor_brightness_cb = NULL;
+static monitor_set_calibration_fn g_monitor_calibration_cb = NULL;
+static monitor_set_temp_offset_fn g_monitor_temp_offset_cb = NULL;
+static monitor_reset_fn g_monitor_reset_cb = NULL;
 
 void
 ipc_set_crtc_calibration_callback(crtc_calibration_fn fn)
 {
 	g_crtc_calibration_cb = fn;
+}
+
+void
+ipc_set_monitor_callbacks(
+	monitor_set_enable_fn enable_fn,
+	monitor_set_brightness_fn brightness_fn,
+	monitor_set_calibration_fn calibration_fn,
+	monitor_set_temp_offset_fn temp_offset_fn,
+	monitor_reset_fn reset_fn)
+{
+	g_monitor_enable_cb = enable_fn;
+	g_monitor_brightness_cb = brightness_fn;
+	g_monitor_calibration_cb = calibration_fn;
+	g_monitor_temp_offset_cb = temp_offset_fn;
+	g_monitor_reset_cb = reset_fn;
+}
+
+static void
+format_monitors_json(const daemon_ipc_state_t *state, char *buf, size_t buf_size)
+{
+	buf[0] = '\0';
+	size_t offset = 0;
+	offset += snprintf(buf + offset, buf_size - offset, "  \"monitors\": [\n");
+
+	int count = state->monitor_count;
+	if (count <= 0) {
+		offset += snprintf(buf + offset, buf_size - offset,
+				   "    {\n"
+				   "      \"id\": 0,\n"
+				   "      \"name\": \"Display-0\",\n"
+				   "      \"active\": true,\n"
+				   "      \"enabled\": true,\n"
+				   "      \"brightness\": 1.00,\n"
+				   "      \"gamma\": [1.000, 1.000, 1.000],\n"
+				   "      \"temp_offset\": 0\n"
+				   "    }\n");
+	} else {
+		for (int i = 0; i < count; i++) {
+			const ipc_monitor_info_t *m = &state->monitors[i];
+			float r = (m->gamma_mult[0] > 0.01f) ? m->gamma_mult[0] : 1.0f;
+			float g = (m->gamma_mult[1] > 0.01f) ? m->gamma_mult[1] : 1.0f;
+			float b = (m->gamma_mult[2] > 0.01f) ? m->gamma_mult[2] : 1.0f;
+			float bright = (m->brightness > 0.01f) ? m->brightness : 1.0f;
+			offset += snprintf(buf + offset, buf_size - offset,
+					   "    {\n"
+					   "      \"id\": %d,\n"
+					   "      \"name\": \"%s\",\n"
+					   "      \"active\": %s,\n"
+					   "      \"enabled\": %s,\n"
+					   "      \"brightness\": %.2f,\n"
+					   "      \"gamma\": [%.3f, %.3f, %.3f],\n"
+					   "      \"temp_offset\": %d\n"
+					   "    }%s\n",
+					   m->id,
+					   m->name[0] ? m->name : "Display",
+					   m->active ? "true" : "false",
+					   m->enabled ? "true" : "false",
+					   bright,
+					   r, g, b,
+					   m->temp_offset,
+					   (i < count - 1) ? "," : "");
+			if (offset >= buf_size - 1) break;
+		}
+	}
+	snprintf(buf + offset, buf_size - offset, "  ],\n");
 }
 
 /* Parse human duration string into seconds */
@@ -200,6 +270,8 @@ ipc_dispatch_command(
 			state->cvd_mode);
 
 		if (arg != NULL && (strcasecmp(arg, "--json") == 0 || strcasecmp(arg, "-j") == 0 || strcasecmp(arg, "json") == 0)) {
+			char mon_json[2048];
+			format_monitors_json(state, mon_json, sizeof(mon_json));
 			snprintf(response_buf, response_buf_size,
 				 "{\n"
 				 "  \"status\": \"%s\",\n"
@@ -226,6 +298,7 @@ ipc_dispatch_command(
 				 "  \"battery_saver\": \"%s\",\n"
 				 "  \"auto_brightness\": %s,\n"
 				 "  \"als_threshold\": %d,\n"
+				 "%s"
 				 "  \"total_active_seconds\": %llu,\n"
 				 "  \"restorative_seconds\": %llu,\n"
 				 "  \"hev_joules_saved\": %.2f,\n"
@@ -269,6 +342,7 @@ ipc_dispatch_command(
 				 state->battery_saver == 2 ? "on" : (state->battery_saver == 1 ? "auto" : "off"),
 				 state->auto_brightness ? "true" : "false",
 				 state->als_threshold,
+				 mon_json,
 				 (unsigned long long)state->total_active_seconds,
 				 (unsigned long long)state->restorative_seconds,
 				 state->hev_joules_saved,
@@ -692,27 +766,192 @@ ipc_dispatch_command(
 			snprintf(response_buf, response_buf_size, "Current ALS Lux Threshold: %d lux\n", state->als_threshold);
 		}
 		return 0;
-	} else if (strcasecmp(cmd, "crtc-calibrate") == 0 || strcasecmp(cmd, "crtc-gamma") == 0) {
+	} else if (strcasecmp(cmd, "monitors") == 0 || strcasecmp(cmd, "displays") == 0 || strcasecmp(cmd, "crtcs") == 0) {
+		char mon_buf[2048];
+		size_t offset = 0;
+		int count = state->monitor_count;
+		offset += snprintf(mon_buf + offset, sizeof(mon_buf) - offset,
+				   "Attached Displays (%d detected):\n", (count > 0 ? count : 1));
+		if (count <= 0) {
+			offset += snprintf(mon_buf + offset, sizeof(mon_buf) - offset,
+					   "  [0] Display-0: Active, Adjustments: Enabled, Brightness: 100%%, Calibration: 1.000:1.000:1.000, Offset: +0K\n");
+		} else {
+			for (int i = 0; i < count; i++) {
+				const ipc_monitor_info_t *m = &state->monitors[i];
+				float r = (m->gamma_mult[0] > 0.01f) ? m->gamma_mult[0] : 1.0f;
+				float g = (m->gamma_mult[1] > 0.01f) ? m->gamma_mult[1] : 1.0f;
+				float b = (m->gamma_mult[2] > 0.01f) ? m->gamma_mult[2] : 1.0f;
+				float bright = (m->brightness > 0.01f) ? m->brightness : 1.0f;
+				offset += snprintf(mon_buf + offset, sizeof(mon_buf) - offset,
+						   "  [%d] %s: %s, Adjustments: %s, Brightness: %d%%, Calibration: %.3f:%.3f:%.3f, Offset: %+dK\n",
+						   m->id,
+						   m->name[0] ? m->name : "Display",
+						   m->active ? "Active" : "Inactive",
+						   m->enabled ? "Enabled" : "Bypassed",
+						   (int)(bright * 100.0f + 0.5f),
+						   r, g, b,
+						   m->temp_offset);
+				if (offset >= sizeof(mon_buf) - 1) break;
+			}
+		}
+		snprintf(response_buf, response_buf_size, "%s", mon_buf);
+		return 0;
+	} else if (strcasecmp(cmd, "monitor-enable") == 0 || strcasecmp(cmd, "crtc-enable") == 0) {
+		int id = -1;
+		char val[32] = {0};
+		if (sscanf(arg, "%d %31s", &id, val) >= 1) {
+			int en = 1;
+			if (val[0] != '\0') {
+				en = (strcasecmp(val, "off") != 0 && strcasecmp(val, "0") != 0 &&
+				      strcasecmp(val, "bypass") != 0 && strcasecmp(val, "disable") != 0 &&
+				      strcasecmp(val, "false") != 0);
+			} else {
+				if (id >= 0 && id < state->monitor_count) {
+					en = !state->monitors[id].enabled;
+				}
+			}
+			if (id >= 0 && id < MAX_IPC_MONITORS) {
+				if (id >= state->monitor_count) state->monitor_count = id + 1;
+				state->monitors[id].id = id;
+				state->monitors[id].enabled = en;
+				if (g_monitor_enable_cb != NULL) {
+					g_monitor_enable_cb(id, en);
+				}
+				state->state_changed = 1;
+				snprintf(response_buf, response_buf_size,
+					 "Monitor %d: Adjustments %s\n",
+					 id, en ? "Enabled" : "Bypassed (Neutral Identity)");
+				return 0;
+			}
+		}
+		snprintf(response_buf, response_buf_size, "Usage: monitor-enable <id> [on|off]\n");
+		return 0;
+	} else if (strcasecmp(cmd, "monitor-brightness") == 0 || strcasecmp(cmd, "crtc-brightness") == 0) {
+		int id = -1;
+		float b = 1.0f;
+		if (sscanf(arg, "%d %f", &id, &b) == 2) {
+			if (b < 0.1f) b = 0.1f;
+			if (b > 2.0f) b = 2.0f;
+			if (id >= 0 && id < MAX_IPC_MONITORS) {
+				if (id >= state->monitor_count) state->monitor_count = id + 1;
+				state->monitors[id].id = id;
+				state->monitors[id].brightness = b;
+				if (g_monitor_brightness_cb != NULL) {
+					g_monitor_brightness_cb(id, b);
+				}
+				state->state_changed = 1;
+				snprintf(response_buf, response_buf_size,
+					 "Monitor %d: Brightness multiplier set to %.2f\n", id, b);
+				return 0;
+			}
+		}
+		snprintf(response_buf, response_buf_size, "Usage: monitor-brightness <id> <val>\n");
+		return 0;
+	} else if (strcasecmp(cmd, "monitor-calibrate") == 0 || strcasecmp(cmd, "crtc-calibrate") == 0 || strcasecmp(cmd, "crtc-gamma") == 0) {
 		int idx = -1;
 		float r_m = 1.0f, g_m = 1.0f, b_m = 1.0f;
 		if (sscanf(arg, "%d %f %f %f", &idx, &r_m, &g_m, &b_m) == 4 ||
 		    sscanf(arg, "%d:%f:%f:%f", &idx, &r_m, &g_m, &b_m) == 4) {
-			if (idx >= 0 && idx < 8) {
+			if (idx >= 0 && idx < MAX_IPC_MONITORS) {
+				if (r_m < 0.1f) {
+					r_m = 0.1f;
+				} else if (r_m > 2.0f) {
+					r_m = 2.0f;
+				}
+				if (g_m < 0.1f) {
+					g_m = 0.1f;
+				} else if (g_m > 2.0f) {
+					g_m = 2.0f;
+				}
+				if (b_m < 0.1f) {
+					b_m = 0.1f;
+				} else if (b_m > 2.0f) {
+					b_m = 2.0f;
+				}
 				state->crtc_calibrations[idx][0] = r_m;
 				state->crtc_calibrations[idx][1] = g_m;
 				state->crtc_calibrations[idx][2] = b_m;
-				if (g_crtc_calibration_cb != NULL) {
+				if (idx >= state->monitor_count) state->monitor_count = idx + 1;
+				state->monitors[idx].id = idx;
+				state->monitors[idx].gamma_mult[0] = r_m;
+				state->monitors[idx].gamma_mult[1] = g_m;
+				state->monitors[idx].gamma_mult[2] = b_m;
+				if (g_monitor_calibration_cb != NULL) {
+					g_monitor_calibration_cb(idx, r_m, g_m, b_m);
+				} else if (g_crtc_calibration_cb != NULL) {
 					g_crtc_calibration_cb(idx, r_m, g_m, b_m);
 				}
 				state->state_changed = 1;
 				snprintf(response_buf, response_buf_size,
-					 "CRTC %d Calibration set: R=%.2f, G=%.2f, B=%.2f\n",
+					 "Monitor %d Calibration set: R=%.3f, G=%.3f, B=%.3f\n",
 					 idx, r_m, g_m, b_m);
 				return 0;
 			}
 		}
 		snprintf(response_buf, response_buf_size,
-			 "Usage: crtc-calibrate <crtc_idx> <r_mult> <g_mult> <b_mult> (e.g. 0 1.0 0.95 1.0)\n");
+			 "Usage: monitor-calibrate <idx> <r_mult> <g_mult> <b_mult> (e.g. 0 1.0 0.95 1.0)\n");
+		return 0;
+	} else if (strcasecmp(cmd, "monitor-offset") == 0 || strcasecmp(cmd, "monitor-temp-offset") == 0 || strcasecmp(cmd, "crtc-offset") == 0) {
+		int id = -1;
+		int off = 0;
+		if (sscanf(arg, "%d %d", &id, &off) == 2) {
+			if (off < -5000) off = -5000;
+			if (off > 5000) off = 5000;
+			if (id >= 0 && id < MAX_IPC_MONITORS) {
+				if (id >= state->monitor_count) state->monitor_count = id + 1;
+				state->monitors[id].id = id;
+				state->monitors[id].temp_offset = off;
+				if (g_monitor_temp_offset_cb != NULL) {
+					g_monitor_temp_offset_cb(id, off);
+				}
+				state->state_changed = 1;
+				snprintf(response_buf, response_buf_size,
+					 "Monitor %d: Temperature offset set to %+dK\n", id, off);
+				return 0;
+			}
+		}
+		snprintf(response_buf, response_buf_size, "Usage: monitor-offset <id> <kelvin>\n");
+		return 0;
+	} else if (strcasecmp(cmd, "monitor-reset") == 0 || strcasecmp(cmd, "crtc-reset") == 0) {
+		int id = -1;
+		if (sscanf(arg, "%d", &id) == 1 && id >= 0 && id < MAX_IPC_MONITORS) {
+			state->crtc_calibrations[id][0] = 1.0f;
+			state->crtc_calibrations[id][1] = 1.0f;
+			state->crtc_calibrations[id][2] = 1.0f;
+			state->monitors[id].id = id;
+			state->monitors[id].enabled = 1;
+			state->monitors[id].brightness = 1.0f;
+			state->monitors[id].gamma_mult[0] = 1.0f;
+			state->monitors[id].gamma_mult[1] = 1.0f;
+			state->monitors[id].gamma_mult[2] = 1.0f;
+			state->monitors[id].temp_offset = 0;
+			if (g_monitor_reset_cb != NULL) {
+				g_monitor_reset_cb(id);
+			}
+			state->state_changed = 1;
+			snprintf(response_buf, response_buf_size, "Monitor %d: Reset to defaults\n", id);
+			return 0;
+		}
+		snprintf(response_buf, response_buf_size, "Usage: monitor-reset <id>\n");
+		return 0;
+	} else if (strcasecmp(cmd, "monitor-reset-all") == 0) {
+		for (int i = 0; i < MAX_IPC_MONITORS; i++) {
+			state->crtc_calibrations[i][0] = 1.0f;
+			state->crtc_calibrations[i][1] = 1.0f;
+			state->crtc_calibrations[i][2] = 1.0f;
+			state->monitors[i].id = i;
+			state->monitors[i].enabled = 1;
+			state->monitors[i].brightness = 1.0f;
+			state->monitors[i].gamma_mult[0] = 1.0f;
+			state->monitors[i].gamma_mult[1] = 1.0f;
+			state->monitors[i].gamma_mult[2] = 1.0f;
+			state->monitors[i].temp_offset = 0;
+			if (g_monitor_reset_cb != NULL) {
+				g_monitor_reset_cb(i);
+			}
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size, "All monitors reset to defaults\n");
 		return 0;
 	} else if (strcasecmp(cmd, "stats") == 0 || strcasecmp(cmd, "telemetry") == 0) {
 		double tera_photons = (state->hev_joules_saved * 2.26e18) / 1e12;
@@ -937,11 +1176,20 @@ ipc_dispatch_command(
 		state->battery_saver = 0;
 		state->auto_brightness = 0;
 		state->als_threshold = 50;
-		for (int c = 0; c < 8; c++) {
+		for (int c = 0; c < MAX_IPC_MONITORS; c++) {
 			state->crtc_calibrations[c][0] = 1.0f;
 			state->crtc_calibrations[c][1] = 1.0f;
 			state->crtc_calibrations[c][2] = 1.0f;
-			if (g_crtc_calibration_cb != NULL) {
+			state->monitors[c].id = c;
+			state->monitors[c].enabled = 1;
+			state->monitors[c].brightness = 1.0f;
+			state->monitors[c].gamma_mult[0] = 1.0f;
+			state->monitors[c].gamma_mult[1] = 1.0f;
+			state->monitors[c].gamma_mult[2] = 1.0f;
+			state->monitors[c].temp_offset = 0;
+			if (g_monitor_reset_cb != NULL) {
+				g_monitor_reset_cb(c);
+			} else if (g_crtc_calibration_cb != NULL) {
 				g_crtc_calibration_cb(c, 1.0f, 1.0f, 1.0f);
 			}
 		}
@@ -974,6 +1222,12 @@ ipc_dispatch_command(
 			 "  cvd [MODE|off]   Color vision assistance (protanopia, deuteranopia, tritanopia, achromatopsia)\n"
 			 "  battery-saver [on|auto|off] Low-power throttle (3400K, 80%% brightness on battery)\n"
 			 "  auto-brightness [on|off] Ambient light sensor (IIO) dynamic auto-brightness\n"
+			 "  monitors         List attached monitors and independent settings\n"
+			 "  monitor-enable ID [on|off] Enable or bypass circadian adjustments on monitor\n"
+			 "  monitor-brightness ID VAL  Set independent brightness multiplier for monitor\n"
+			 "  monitor-calibrate ID R G B Independent RGB white point calibration multiplier\n"
+			 "  monitor-offset ID KELVIN   Independent color temperature offset for monitor\n"
+			 "  monitor-reset ID Reset monitor settings to default\n"
 			 "  crtc-calibrate ID R G B  Per-CRTC RGB white point calibration multiplier\n"
 			 "  stats            Ocular ergonomics telemetry & HEV blue photon energy saved\n"
 			 "  myopia-protect   Myopia protection mode (2850K, 60%% luminance limit)\n"
@@ -1265,7 +1519,12 @@ ipc_client_dispatch(int argc, char *argv[])
 		"cvd", "colorblind", "daltonize",
 		"battery-saver", "battery", "low-power", "powersave",
 		"auto-brightness", "autobrightness", "als-threshold",
-		"crtc-calibrate", "crtc-gamma",
+		"monitors", "displays", "crtcs",
+		"monitor-enable", "crtc-enable", "monitor-bypass",
+		"monitor-brightness", "crtc-brightness",
+		"monitor-calibrate", "crtc-calibrate", "crtc-gamma",
+		"monitor-offset", "monitor-temp-offset", "crtc-offset",
+		"monitor-reset", "crtc-reset", "monitor-reset-all",
 		"quit", "exit", "stop", "help", NULL
 	};
 

@@ -33,6 +33,18 @@ typedef struct {
 	char symlink_path[108];
 } ipc_t;
 
+#define MAX_IPC_MONITORS 8
+
+typedef struct {
+	int id;
+	char name[32];
+	int active;
+	int enabled;           /* 1 = adjustments enabled, 0 = bypassed */
+	float brightness;      /* multiplier (0.1 to 2.0, default 1.0) */
+	float gamma_mult[3];   /* R, G, B calibration multipliers, default 1.0 */
+	int temp_offset;       /* Kelvin offset, default 0 */
+} ipc_monitor_info_t;
+
 typedef struct {
 	int disabled;
 	time_t pause_until;
@@ -66,6 +78,8 @@ typedef struct {
 	int auto_brightness;    /* 0=off, 1=on (WO-014) */
 	int als_threshold;      /* lux delta threshold (default 50) */
 	float crtc_calibrations[8][3]; /* per-CRTC R,G,B multipliers (WO-013) */
+	int monitor_count;      /* Attached monitors count */
+	ipc_monitor_info_t monitors[MAX_IPC_MONITORS]; /* Per-monitor independent controls */
 	uint64_t total_active_seconds;
 	uint64_t restorative_seconds;
 	double hev_joules_saved;
@@ -82,6 +96,20 @@ int ipc_parse_duration(const char *str);
 /* Callback type for dynamic CRTC calibration (WO-013) */
 typedef int (*crtc_calibration_fn)(int, float, float, float);
 void ipc_set_crtc_calibration_callback(crtc_calibration_fn fn);
+
+/* Callbacks for dynamic multi-monitor independent control */
+typedef int (*monitor_set_enable_fn)(int id, int enabled);
+typedef int (*monitor_set_brightness_fn)(int id, float brightness);
+typedef int (*monitor_set_calibration_fn)(int id, float r, float g, float b);
+typedef int (*monitor_set_temp_offset_fn)(int id, int temp_offset);
+typedef int (*monitor_reset_fn)(int id);
+
+void ipc_set_monitor_callbacks(
+	monitor_set_enable_fn enable_fn,
+	monitor_set_brightness_fn brightness_fn,
+	monitor_set_calibration_fn calibration_fn,
+	monitor_set_temp_offset_fn temp_offset_fn,
+	monitor_reset_fn reset_fn);
 
 /* Format a response for a given command against the daemon state.
    Returns 0 on success. */

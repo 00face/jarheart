@@ -48,11 +48,16 @@
 
 typedef struct {
 	RRCrtc crtc;
+	char name[32];
+	int active;
+	int enabled;           /* 1 = Jarheart adjustments applied, 0 = bypassed (linear identity 6500K) */
+	float brightness_mult; /* per-CRTC brightness multiplier (default 1.0f) */
+	float gamma_mult[3];   /* per-CRTC R, G, B calibration multipliers (default 1.0f) */
+	int temp_offset;       /* per-CRTC Kelvin offset (default 0) */
 	int ramp_size;
 	uint16_t *saved_r;
 	uint16_t *saved_g;
 	uint16_t *saved_b;
-	float gamma_mult[3]; /* per-CRTC R, G, B calibration multipliers (WO-013) */
 } randr_crtc_state_t;
 
 typedef struct {
@@ -69,6 +74,9 @@ typedef struct {
 
 static randr_state_t *g_randr_state = NULL;
 static float g_pending_crtc_mults[8][3];
+static int g_pending_crtc_enabled[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+static float g_pending_crtc_brightness[8] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+static int g_pending_crtc_temp_offset[8];
 static int g_has_pending_crtc = 0;
 
 int
@@ -92,6 +100,104 @@ randr_set_crtc_calibration(int crtc_num, float r, float g, float b)
 		g_randr_state->crtcs[crtc_num].gamma_mult[1] = g;
 		g_randr_state->crtcs[crtc_num].gamma_mult[2] = b;
 	}
+	return 0;
+}
+
+int
+randr_set_crtc_enabled(int crtc_num, int enabled)
+{
+	if (crtc_num < 0 || crtc_num >= 8) return -1;
+	g_pending_crtc_enabled[crtc_num] = enabled ? 1 : 0;
+	g_has_pending_crtc = 1;
+
+	if (g_randr_state != NULL && crtc_num < g_randr_state->crtc_count) {
+		g_randr_state->crtcs[crtc_num].enabled = enabled ? 1 : 0;
+	}
+	return 0;
+}
+
+int
+randr_set_crtc_brightness(int crtc_num, float brightness)
+{
+	if (crtc_num < 0 || crtc_num >= 8) return -1;
+	if (brightness < 0.1f) brightness = 0.1f;
+	if (brightness > 2.0f) brightness = 2.0f;
+
+	g_pending_crtc_brightness[crtc_num] = brightness;
+	g_has_pending_crtc = 1;
+
+	if (g_randr_state != NULL && crtc_num < g_randr_state->crtc_count) {
+		g_randr_state->crtcs[crtc_num].brightness_mult = brightness;
+	}
+	return 0;
+}
+
+int
+randr_set_crtc_temp_offset(int crtc_num, int temp_offset)
+{
+	if (crtc_num < 0 || crtc_num >= 8) return -1;
+	if (temp_offset < -5000) temp_offset = -5000;
+	if (temp_offset > 5000) temp_offset = 5000;
+
+	g_pending_crtc_temp_offset[crtc_num] = temp_offset;
+	g_has_pending_crtc = 1;
+
+	if (g_randr_state != NULL && crtc_num < g_randr_state->crtc_count) {
+		g_randr_state->crtcs[crtc_num].temp_offset = temp_offset;
+	}
+	return 0;
+}
+
+int
+randr_reset_crtc(int crtc_num)
+{
+	if (crtc_num < 0 || crtc_num >= 8) return -1;
+	g_pending_crtc_mults[crtc_num][0] = 1.0f;
+	g_pending_crtc_mults[crtc_num][1] = 1.0f;
+	g_pending_crtc_mults[crtc_num][2] = 1.0f;
+	g_pending_crtc_enabled[crtc_num] = 1;
+	g_pending_crtc_brightness[crtc_num] = 1.0f;
+	g_pending_crtc_temp_offset[crtc_num] = 0;
+
+	if (g_randr_state != NULL && crtc_num < g_randr_state->crtc_count) {
+		g_randr_state->crtcs[crtc_num].gamma_mult[0] = 1.0f;
+		g_randr_state->crtcs[crtc_num].gamma_mult[1] = 1.0f;
+		g_randr_state->crtcs[crtc_num].gamma_mult[2] = 1.0f;
+		g_randr_state->crtcs[crtc_num].enabled = 1;
+		g_randr_state->crtcs[crtc_num].brightness_mult = 1.0f;
+		g_randr_state->crtcs[crtc_num].temp_offset = 0;
+	}
+	return 0;
+}
+
+int
+randr_get_crtc_count(void)
+{
+	if (g_randr_state == NULL) return 0;
+	return g_randr_state->crtc_count;
+}
+
+int
+randr_get_crtc_info(int crtc_num, char *name_buf, size_t name_buf_size,
+		    int *active, int *enabled, float *brightness,
+		    float gamma_mult[3], int *temp_offset)
+{
+	if (g_randr_state == NULL || crtc_num < 0 || crtc_num >= g_randr_state->crtc_count) {
+		return -1;
+	}
+	randr_crtc_state_t *c = &g_randr_state->crtcs[crtc_num];
+	if (name_buf && name_buf_size > 0) {
+		snprintf(name_buf, name_buf_size, "%s", c->name[0] ? c->name : "CRTC");
+	}
+	if (active) *active = c->active;
+	if (enabled) *enabled = c->enabled;
+	if (brightness) *brightness = c->brightness_mult;
+	if (gamma_mult) {
+		gamma_mult[0] = c->gamma_mult[0];
+		gamma_mult[1] = c->gamma_mult[1];
+		gamma_mult[2] = c->gamma_mult[2];
+	}
+	if (temp_offset) *temp_offset = c->temp_offset;
 	return 0;
 }
 
@@ -209,11 +315,23 @@ randr_start(randr_state_t *state)
 		state->crtcs[i].gamma_mult[0] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][0] > 0.01f) ? g_pending_crtc_mults[i][0] : 1.0f;
 		state->crtcs[i].gamma_mult[1] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][1] > 0.01f) ? g_pending_crtc_mults[i][1] : 1.0f;
 		state->crtcs[i].gamma_mult[2] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][2] > 0.01f) ? g_pending_crtc_mults[i][2] : 1.0f;
+		state->crtcs[i].enabled = (i < 8 && g_has_pending_crtc) ? g_pending_crtc_enabled[i] : 1;
+		state->crtcs[i].brightness_mult = (i < 8 && g_has_pending_crtc && g_pending_crtc_brightness[i] > 0.05f) ? g_pending_crtc_brightness[i] : 1.0f;
+		state->crtcs[i].temp_offset = (i < 8 && g_has_pending_crtc) ? g_pending_crtc_temp_offset[i] : 0;
+		snprintf(state->crtcs[i].name, sizeof(state->crtcs[i].name), "CRTC-%d", i);
 
 		XRRCrtcInfo *ci = XRRGetCrtcInfo(state->dpy, res, crtc);
 		if (ci == NULL) continue;
 
 		int is_active = (ci->mode != None && ci->noutput > 0);
+		state->crtcs[i].active = is_active;
+		if (ci->noutput > 0) {
+			XRROutputInfo *oi = XRRGetOutputInfo(state->dpy, res, ci->outputs[0]);
+			if (oi != NULL) {
+				snprintf(state->crtcs[i].name, sizeof(state->crtcs[i].name), "%s", oi->name);
+				XRRFreeOutputInfo(oi);
+			}
+		}
 		XRRFreeCrtcInfo(ci);
 		if (!is_active) continue;
 
@@ -285,6 +403,15 @@ randr_refresh_crtcs(randr_state_t *state)
 		XRRCrtcInfo *ci = XRRGetCrtcInfo(state->dpy, res, crtc);
 		if (ci == NULL) continue;
 		int is_active = (ci->mode != None && ci->noutput > 0);
+		new_crtcs[i].active = is_active;
+		snprintf(new_crtcs[i].name, sizeof(new_crtcs[i].name), "CRTC-%d", i);
+		if (ci->noutput > 0) {
+			XRROutputInfo *oi = XRRGetOutputInfo(state->dpy, res, ci->outputs[0]);
+			if (oi != NULL) {
+				snprintf(new_crtcs[i].name, sizeof(new_crtcs[i].name), "%s", oi->name);
+				XRRFreeOutputInfo(oi);
+			}
+		}
 		XRRFreeCrtcInfo(ci);
 		if (!is_active) continue;
 
@@ -305,6 +432,9 @@ randr_refresh_crtcs(randr_state_t *state)
 				new_crtcs[i].gamma_mult[0] = state->crtcs[j].gamma_mult[0];
 				new_crtcs[i].gamma_mult[1] = state->crtcs[j].gamma_mult[1];
 				new_crtcs[i].gamma_mult[2] = state->crtcs[j].gamma_mult[2];
+				new_crtcs[i].enabled = state->crtcs[j].enabled;
+				new_crtcs[i].brightness_mult = state->crtcs[j].brightness_mult;
+				new_crtcs[i].temp_offset = state->crtcs[j].temp_offset;
 				found = 1;
 				break;
 			}
@@ -314,6 +444,9 @@ randr_refresh_crtcs(randr_state_t *state)
 			new_crtcs[i].gamma_mult[0] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][0] > 0.01f) ? g_pending_crtc_mults[i][0] : 1.0f;
 			new_crtcs[i].gamma_mult[1] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][1] > 0.01f) ? g_pending_crtc_mults[i][1] : 1.0f;
 			new_crtcs[i].gamma_mult[2] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][2] > 0.01f) ? g_pending_crtc_mults[i][2] : 1.0f;
+			new_crtcs[i].enabled = (i < 8 && g_has_pending_crtc) ? g_pending_crtc_enabled[i] : 1;
+			new_crtcs[i].brightness_mult = (i < 8 && g_has_pending_crtc && g_pending_crtc_brightness[i] > 0.05f) ? g_pending_crtc_brightness[i] : 1.0f;
+			new_crtcs[i].temp_offset = (i < 8 && g_has_pending_crtc) ? g_pending_crtc_temp_offset[i] : 0;
 			XRRCrtcGamma *g = XRRGetCrtcGamma(state->dpy, crtc);
 			if (g != NULL) {
 				new_crtcs[i].ramp_size = size;
@@ -494,6 +627,52 @@ randr_set_option(randr_state_t *state, const char *key, const char *value)
 		} else {
 			return -1;
 		}
+	} else if (strcasecmp(key, "crtc-enabled") == 0) {
+		int crtc_idx = -1, en = 1;
+		if (sscanf(value, "%d:%d", &crtc_idx, &en) == 2) {
+			randr_set_crtc_enabled(crtc_idx, en);
+		} else {
+			return -1;
+		}
+	} else if (strncasecmp(key, "crtc", 4) == 0 && strstr(key, "-enabled") != NULL) {
+		int crtc_idx = -1;
+		if (sscanf(key + 4, "%d-enabled", &crtc_idx) == 1) {
+			int en = (strcasecmp(value, "true") == 0 || strcasecmp(value, "1") == 0 || strcasecmp(value, "on") == 0);
+			randr_set_crtc_enabled(crtc_idx, en);
+		} else {
+			return -1;
+		}
+	} else if (strcasecmp(key, "crtc-brightness") == 0) {
+		int crtc_idx = -1;
+		float b = 1.0f;
+		if (sscanf(value, "%d:%f", &crtc_idx, &b) == 2) {
+			randr_set_crtc_brightness(crtc_idx, b);
+		} else {
+			return -1;
+		}
+	} else if (strncasecmp(key, "crtc", 4) == 0 && strstr(key, "-brightness") != NULL) {
+		int crtc_idx = -1;
+		if (sscanf(key + 4, "%d-brightness", &crtc_idx) == 1) {
+			float b = (float)atof(value);
+			randr_set_crtc_brightness(crtc_idx, b);
+		} else {
+			return -1;
+		}
+	} else if (strcasecmp(key, "crtc-offset") == 0) {
+		int crtc_idx = -1, off = 0;
+		if (sscanf(value, "%d:%d", &crtc_idx, &off) == 2) {
+			randr_set_crtc_temp_offset(crtc_idx, off);
+		} else {
+			return -1;
+		}
+	} else if (strncasecmp(key, "crtc", 4) == 0 && strstr(key, "-offset") != NULL) {
+		int crtc_idx = -1;
+		if (sscanf(key + 4, "%d-offset", &crtc_idx) == 1) {
+			int off = atoi(value);
+			randr_set_crtc_temp_offset(crtc_idx, off);
+		} else {
+			return -1;
+		}
 	} else {
 		fprintf(stderr, _("Unknown method parameter: `%s'.\n"), key);
 		return -1;
@@ -523,12 +702,43 @@ randr_set_temperature_for_crtc(
 		return -1;
 	}
 
-	int is_neutral = (setting->temperature == NEUTRAL_TEMP &&
-			  setting->brightness >= 0.999f && setting->brightness <= 1.001f &&
-			  setting->gamma[0] >= 0.999f && setting->gamma[0] <= 1.001f &&
-			  setting->gamma[1] >= 0.999f && setting->gamma[1] <= 1.001f &&
-			  setting->gamma[2] >= 0.999f && setting->gamma[2] <= 1.001f &&
-			  !setting->darkroom && !setting->movie_mode && setting->cvd_mode == CVD_NONE);
+	/* If monitor is bypassed (disabled from adjustments), restore neutral linear identity */
+	if (!state->crtcs[crtc_num].enabled) {
+		if (preserve && state->crtcs[crtc_num].saved_r != NULL) {
+			memcpy(gamma->red, state->crtcs[crtc_num].saved_r,
+			       ramp_size * sizeof(uint16_t));
+			memcpy(gamma->green, state->crtcs[crtc_num].saved_g,
+			       ramp_size * sizeof(uint16_t));
+			memcpy(gamma->blue, state->crtcs[crtc_num].saved_b,
+			       ramp_size * sizeof(uint16_t));
+		} else {
+			randr_fill_linear(gamma->red, gamma->green, gamma->blue, ramp_size);
+		}
+		XRRSetCrtcGamma(state->dpy, state->crtcs[crtc_num].crtc, gamma);
+		XRRFreeGamma(gamma);
+		return 0;
+	}
+
+	color_setting_t crtc_setting = *setting;
+	if (state->crtcs[crtc_num].temp_offset != 0) {
+		int target = (int)crtc_setting.temperature + state->crtcs[crtc_num].temp_offset;
+		if (target < 1000) target = 1000;
+		if (target > 25000) target = 25000;
+		crtc_setting.temperature = (unsigned int)target;
+	}
+	if (state->crtcs[crtc_num].brightness_mult != 1.0f) {
+		float b = crtc_setting.brightness * state->crtcs[crtc_num].brightness_mult;
+		if (b < 0.1f) b = 0.1f;
+		if (b > 2.0f) b = 2.0f;
+		crtc_setting.brightness = b;
+	}
+
+	int is_neutral = (crtc_setting.temperature == NEUTRAL_TEMP &&
+			  crtc_setting.brightness >= 0.999f && crtc_setting.brightness <= 1.001f &&
+			  crtc_setting.gamma[0] >= 0.999f && crtc_setting.gamma[0] <= 1.001f &&
+			  crtc_setting.gamma[1] >= 0.999f && crtc_setting.gamma[1] <= 1.001f &&
+			  crtc_setting.gamma[2] >= 0.999f && crtc_setting.gamma[2] <= 1.001f &&
+			  !crtc_setting.darkroom && !crtc_setting.movie_mode && crtc_setting.cvd_mode == CVD_NONE);
 
 	if (is_neutral &&
 	    state->crtcs[crtc_num].gamma_mult[0] == 1.0f &&
@@ -552,7 +762,7 @@ randr_set_temperature_for_crtc(
 		randr_fill_linear(gamma->red, gamma->green, gamma->blue, ramp_size);
 	}
 
-	colorramp_fill(gamma->red, gamma->green, gamma->blue, ramp_size, setting);
+	colorramp_fill(gamma->red, gamma->green, gamma->blue, ramp_size, &crtc_setting);
 
 	/* Apply per-CRTC independent calibration (WO-013) */
 	if (state->crtcs[crtc_num].gamma_mult[0] != 1.0f ||

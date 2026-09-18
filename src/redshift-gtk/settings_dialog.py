@@ -114,8 +114,13 @@ class SettingsDialog(Gtk.Window):
 
         main_box.pack_start(self.stack, True, True, 0)
 
+        # Multi-monitor state tracking
+        self.monitor_widgets = {}
+        self._updating_monitors = False
+
         # Build Tabs
         self.build_display_tab()
+        self.build_monitors_tab()
         self.build_health_tab()
         self.build_schedules_tab()
         self.build_diagnostics_tab()
@@ -123,6 +128,7 @@ class SettingsDialog(Gtk.Window):
         self.stack.set_visible_child_name("display")
 
         self.connect('delete-event', self.on_close_clicked)
+        self.update_monitors_ui([])
         self.load_config_defaults()
         self.refresh_state_from_daemon()
 
@@ -301,6 +307,278 @@ class SettingsDialog(Gtk.Window):
         box.pack_start(card_p, False, False, 0)
 
         self.stack.add_titled(scrolled, "display", _("Display & Circadian"))
+
+    # --- TAB: Attached Displays & Multi-Monitor Control ---
+    def build_monitors_tab(self):
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(4)
+        box.set_margin_bottom(12)
+        scrolled.add(box)
+
+        # Overview & Action Card
+        card_hdr = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card_hdr.get_style_context().add_class('card-box')
+        lbl_hdr = Gtk.Label(label=_("Attached Displays & Independent Multi-Monitor Controls"))
+        lbl_hdr.get_style_context().add_class('card-title')
+        lbl_hdr.set_xalign(0.0)
+        desc_hdr = Gtk.Label(label=_(
+            "Independently configure attached screens: bypass circadian shifts on specific displays\n"
+            "(e.g. keeping external monitors neutral 6500K for color grading), adjust per-screen brightness,\n"
+            "set color temperature offsets, and tune hardware RGB white point balance."
+        ))
+        desc_hdr.get_style_context().add_class('card-desc')
+        desc_hdr.set_xalign(0.0)
+        card_hdr.pack_start(lbl_hdr, False, False, 0)
+        card_hdr.pack_start(desc_hdr, False, False, 0)
+
+        # Action Buttons
+        btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_bar.set_margin_top(4)
+
+        btn_refresh = Gtk.Button(label=_("🔄 Detect & Refresh Displays"))
+        btn_refresh.connect('clicked', lambda w: self.refresh_state_from_daemon())
+        btn_bar.pack_start(btn_refresh, True, True, 0)
+
+        btn_reset_all = Gtk.Button(label=_("↺ Reset All Displays"))
+        btn_reset_all.connect('clicked', self.on_reset_all_monitors_clicked)
+        btn_bar.pack_start(btn_reset_all, True, True, 0)
+
+        card_hdr.pack_start(btn_bar, False, False, 0)
+        box.pack_start(card_hdr, False, False, 0)
+
+        # Dynamic Displays Container
+        self.monitors_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.pack_start(self.monitors_container, True, True, 0)
+
+        self.stack.add_titled(scrolled, "monitors", _("🖥️ Displays"))
+
+    def build_monitor_card(self, mon):
+        mon_id = mon.get('id', 0)
+        mon_name = mon.get('name', f'Display-{mon_id}')
+        is_active = bool(mon.get('active', True))
+        is_enabled = bool(mon.get('enabled', True))
+        brightness = float(mon.get('brightness', 1.0))
+        temp_offset = int(mon.get('temp_offset', 0))
+        gamma = mon.get('gamma', [1.0, 1.0, 1.0])
+        r_val, g_val, b_val = gamma[0], gamma[1], gamma[2]
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.get_style_context().add_class('card-box')
+
+        # Top Header Row: Icon/Name, Active status, Enable switch, Reset button
+        hdr_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_box.set_hexpand(True)
+        lbl_title = Gtk.Label(label=f"🖥️ {mon_name} (Display {mon_id})")
+        lbl_title.get_style_context().add_class('card-title')
+        lbl_title.set_xalign(0.0)
+        title_box.pack_start(lbl_title, False, False, 0)
+
+        chip = Gtk.Label(label=_("Active") if is_active else _("Inactive"))
+        chip.get_style_context().add_class('status-chip')
+        title_box.pack_start(chip, False, False, 0)
+        hdr_row.pack_start(title_box, True, True, 0)
+
+        lbl_sw = Gtk.Label(label=_("Adjustments:"))
+        lbl_sw.get_style_context().add_class('card-desc')
+        hdr_row.pack_start(lbl_sw, False, False, 0)
+
+        en_switch = Gtk.Switch()
+        en_switch.set_active(is_enabled)
+        en_switch.set_valign(Gtk.Align.CENTER)
+        en_switch.connect('notify::active', lambda sw, p, mid=mon_id: self.on_monitor_enable_toggled(sw, p, mid))
+        hdr_row.pack_start(en_switch, False, False, 0)
+
+        btn_reset = Gtk.Button(label=_("↺ Reset"))
+        btn_reset.connect('clicked', lambda w, mid=mon_id: self.on_reset_monitor_clicked(mid))
+        hdr_row.pack_start(btn_reset, False, False, 0)
+
+        card.pack_start(hdr_row, False, False, 0)
+
+        # Content Box for sliders
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content_box.set_sensitive(is_enabled)
+
+        # Brightness Scaling Multiplier
+        br_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        lbl_br = Gtk.Label(label=_("Independent Display Brightness Multiplier"))
+        lbl_br.get_style_context().add_class('card-title')
+        lbl_br.set_xalign(0.0)
+        br_box.pack_start(lbl_br, False, False, 0)
+
+        h_br = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        bright_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 10, 150, 5)
+        bright_scale.set_value(int(brightness * 100))
+        bright_scale.set_hexpand(True)
+        bright_badge = Gtk.Label(label=f"{int(brightness * 100)}%")
+        bright_badge.get_style_context().add_class('status-chip')
+        bright_scale.connect('value-changed', lambda s, mid=mon_id: self.on_monitor_brightness_changed(s, mid))
+        h_br.pack_start(bright_scale, True, True, 0)
+        h_br.pack_start(bright_badge, False, False, 0)
+        br_box.pack_start(h_br, False, False, 0)
+        content_box.pack_start(br_box, False, False, 0)
+
+        # Temperature Offset
+        off_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        lbl_off = Gtk.Label(label=_("Color Temperature Offset"))
+        lbl_off.get_style_context().add_class('card-title')
+        lbl_off.set_xalign(0.0)
+        desc_off = Gtk.Label(label=_("Shifts color temperature warmer or cooler specifically on this screen."))
+        desc_off.get_style_context().add_class('card-desc')
+        desc_off.set_xalign(0.0)
+        off_box.pack_start(lbl_off, False, False, 0)
+        off_box.pack_start(desc_off, False, False, 0)
+
+        h_off = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        offset_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -2000, 2000, 50)
+        offset_scale.set_value(temp_offset)
+        offset_scale.set_hexpand(True)
+        offset_badge = Gtk.Label(label=f"{'+' if temp_offset > 0 else ''}{temp_offset}K")
+        offset_badge.get_style_context().add_class('status-chip')
+        offset_scale.connect('value-changed', lambda s, mid=mon_id: self.on_monitor_offset_changed(s, mid))
+        h_off.pack_start(offset_scale, True, True, 0)
+        h_off.pack_start(offset_badge, False, False, 0)
+        off_box.pack_start(h_off, False, False, 0)
+        content_box.pack_start(off_box, False, False, 0)
+
+        # Hardware RGB Calibration
+        rgb_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        lbl_rgb = Gtk.Label(label=_("Hardware RGB White Point Balance"))
+        lbl_rgb.get_style_context().add_class('card-title')
+        lbl_rgb.set_xalign(0.0)
+        desc_rgb = Gtk.Label(label=_("Fine-tune individual subpixel channel gains for panel matching."))
+        desc_rgb.get_style_context().add_class('card-desc')
+        desc_rgb.set_xalign(0.0)
+        rgb_box.pack_start(lbl_rgb, False, False, 0)
+        rgb_box.pack_start(desc_rgb, False, False, 0)
+
+        # Red Channel
+        h_r = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        lbl_r = Gtk.Label(label=_("Red:"))
+        lbl_r.set_size_request(55, -1)
+        lbl_r.set_xalign(0.0)
+        r_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.50, 1.50, 0.01)
+        r_scale.set_value(r_val)
+        r_scale.set_hexpand(True)
+        r_badge = Gtk.Label(label=f"R: {r_val:.2f}")
+        r_badge.get_style_context().add_class('diag-value')
+        r_scale.connect('value-changed', lambda s, mid=mon_id: self.on_monitor_rgb_changed(mid))
+        h_r.pack_start(lbl_r, False, False, 0)
+        h_r.pack_start(r_scale, True, True, 0)
+        h_r.pack_start(r_badge, False, False, 0)
+        rgb_box.pack_start(h_r, False, False, 0)
+
+        # Green Channel
+        h_g = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        lbl_g = Gtk.Label(label=_("Green:"))
+        lbl_g.set_size_request(55, -1)
+        lbl_g.set_xalign(0.0)
+        g_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.50, 1.50, 0.01)
+        g_scale.set_value(g_val)
+        g_scale.set_hexpand(True)
+        g_badge = Gtk.Label(label=f"G: {g_val:.2f}")
+        g_badge.get_style_context().add_class('diag-value')
+        g_scale.connect('value-changed', lambda s, mid=mon_id: self.on_monitor_rgb_changed(mid))
+        h_g.pack_start(lbl_g, False, False, 0)
+        h_g.pack_start(g_scale, True, True, 0)
+        h_g.pack_start(g_badge, False, False, 0)
+        rgb_box.pack_start(h_g, False, False, 0)
+
+        # Blue Channel
+        h_b = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        lbl_b = Gtk.Label(label=_("Blue:"))
+        lbl_b.set_size_request(55, -1)
+        lbl_b.set_xalign(0.0)
+        b_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.50, 1.50, 0.01)
+        b_scale.set_value(b_val)
+        b_scale.set_hexpand(True)
+        b_badge = Gtk.Label(label=f"B: {b_val:.2f}")
+        b_badge.get_style_context().add_class('diag-value')
+        b_scale.connect('value-changed', lambda s, mid=mon_id: self.on_monitor_rgb_changed(mid))
+        h_b.pack_start(lbl_b, False, False, 0)
+        h_b.pack_start(b_scale, True, True, 0)
+        h_b.pack_start(b_badge, False, False, 0)
+        rgb_box.pack_start(h_b, False, False, 0)
+
+        content_box.pack_start(rgb_box, False, False, 0)
+        card.pack_start(content_box, False, False, 0)
+
+        self.monitor_widgets[mon_id] = {
+            'card': card,
+            'content_box': content_box,
+            'enable_switch': en_switch,
+            'brightness_scale': bright_scale,
+            'brightness_badge': bright_badge,
+            'offset_scale': offset_scale,
+            'offset_badge': offset_badge,
+            'r_scale': r_scale,
+            'r_badge': r_badge,
+            'g_scale': g_scale,
+            'g_badge': g_badge,
+            'b_scale': b_scale,
+            'b_badge': b_badge,
+            'name': mon_name,
+        }
+
+        return card
+
+    def update_monitors_ui(self, monitors):
+        if not monitors:
+            monitors = [{
+                'id': 0,
+                'name': 'eDP-1',
+                'active': True,
+                'enabled': True,
+                'brightness': 1.0,
+                'temp_offset': 0,
+                'gamma': [1.0, 1.0, 1.0]
+            }]
+
+        current_ids = set(self.monitor_widgets.keys())
+        new_ids = {m.get('id', i) for i, m in enumerate(monitors)}
+
+        if current_ids != new_ids or not self.monitors_container.get_children():
+            for child in self.monitors_container.get_children():
+                self.monitors_container.remove(child)
+            self.monitor_widgets.clear()
+            for m in monitors:
+                card = self.build_monitor_card(m)
+                self.monitors_container.pack_start(card, False, False, 0)
+            self.monitors_container.show_all()
+            return
+
+        self._updating_monitors = True
+        try:
+            for m in monitors:
+                mid = m.get('id', 0)
+                w = self.monitor_widgets.get(mid)
+                if not w:
+                    continue
+                en = bool(m.get('enabled', True))
+                w['enable_switch'].set_active(en)
+                w['content_box'].set_sensitive(en)
+
+                b_val = int(float(m.get('brightness', 1.0)) * 100)
+                w['brightness_scale'].set_value(b_val)
+                w['brightness_badge'].set_text(f"{b_val}%")
+
+                off_val = int(m.get('temp_offset', 0))
+                w['offset_scale'].set_value(off_val)
+                w['offset_badge'].set_text(f"{'+' if off_val > 0 else ''}{off_val}K")
+
+                gamma = m.get('gamma', [1.0, 1.0, 1.0])
+                r, g, b = gamma[0], gamma[1], gamma[2]
+                w['r_scale'].set_value(r)
+                w['r_badge'].set_text(f"R: {r:.2f}")
+                w['g_scale'].set_value(g)
+                w['g_badge'].set_text(f"G: {g:.2f}")
+                w['b_scale'].set_value(b)
+                w['b_badge'].set_text(f"B: {b:.2f}")
+        finally:
+            self._updating_monitors = False
 
     # --- TAB 2: Health & Ocular Ergonomics ---
     def build_health_tab(self):
@@ -970,6 +1248,88 @@ class SettingsDialog(Gtk.Window):
         elif active_id == 'time':
             self.send_ipc('schedule 06:30-07:30 19:30-20:45')
 
+    def on_monitor_enable_toggled(self, switch, gparam, mon_id):
+        if getattr(self, '_updating_monitors', False):
+            return
+        val = switch.get_active()
+        w = self.monitor_widgets.get(mon_id)
+        if w:
+            w['content_box'].set_sensitive(val)
+        self.send_ipc(f'monitor-enable {mon_id} {"on" if val else "off"}')
+
+    def on_monitor_brightness_changed(self, scale, mon_id):
+        if getattr(self, '_updating_monitors', False):
+            return
+        val = scale.get_value()
+        w = self.monitor_widgets.get(mon_id)
+        if w:
+            w['brightness_badge'].set_text(f"{int(val)}%")
+        self.send_ipc(f'monitor-brightness {mon_id} {val / 100.0:.2f}')
+
+    def on_monitor_offset_changed(self, scale, mon_id):
+        if getattr(self, '_updating_monitors', False):
+            return
+        val = int(scale.get_value())
+        w = self.monitor_widgets.get(mon_id)
+        if w:
+            w['offset_badge'].set_text(f"{'+' if val > 0 else ''}{val}K")
+        self.send_ipc(f'monitor-offset {mon_id} {val}')
+
+    def on_monitor_rgb_changed(self, mon_id):
+        if getattr(self, '_updating_monitors', False):
+            return
+        w = self.monitor_widgets.get(mon_id)
+        if not w:
+            return
+        r = w['r_scale'].get_value()
+        g = w['g_scale'].get_value()
+        b = w['b_scale'].get_value()
+        w['r_badge'].set_text(f"R: {r:.2f}")
+        w['g_badge'].set_text(f"G: {g:.2f}")
+        w['b_badge'].set_text(f"B: {b:.2f}")
+        self.send_ipc(f'monitor-calibrate {mon_id} {r:.3f} {g:.3f} {b:.3f}')
+
+    def on_reset_monitor_clicked(self, mon_id):
+        self.send_ipc(f'monitor-reset {mon_id}')
+        w = self.monitor_widgets.get(mon_id)
+        if w:
+            self._updating_monitors = True
+            try:
+                w['enable_switch'].set_active(True)
+                w['content_box'].set_sensitive(True)
+                w['brightness_scale'].set_value(100)
+                w['brightness_badge'].set_text("100%")
+                w['offset_scale'].set_value(0)
+                w['offset_badge'].set_text("+0K")
+                w['r_scale'].set_value(1.0)
+                w['r_badge'].set_text("R: 1.00")
+                w['g_scale'].set_value(1.0)
+                w['g_badge'].set_text("G: 1.00")
+                w['b_scale'].set_value(1.0)
+                w['b_badge'].set_text("B: 1.00")
+            finally:
+                self._updating_monitors = False
+
+    def on_reset_all_monitors_clicked(self, button):
+        self.send_ipc('monitor-reset-all')
+        self._updating_monitors = True
+        try:
+            for mid, w in self.monitor_widgets.items():
+                w['enable_switch'].set_active(True)
+                w['content_box'].set_sensitive(True)
+                w['brightness_scale'].set_value(100)
+                w['brightness_badge'].set_text("100%")
+                w['offset_scale'].set_value(0)
+                w['offset_badge'].set_text("+0K")
+                w['r_scale'].set_value(1.0)
+                w['r_badge'].set_text("R: 1.00")
+                w['g_scale'].set_value(1.0)
+                w['g_badge'].set_text("G: 1.00")
+                w['b_scale'].set_value(1.0)
+                w['b_badge'].set_text("B: 1.00")
+        finally:
+            self._updating_monitors = False
+
     def on_save_defaults_clicked(self, button):
         """Write current settings to ~/.config/jarheart/jarheart.conf."""
         config_dir = os.path.expanduser('~/.config/jarheart')
@@ -1008,6 +1368,35 @@ location-provider=manual
 lat={self.lat_entry.get_text().strip() or '41.85'}
 lon={self.lon_entry.get_text().strip() or '-87.65'}
 """
+        if self.monitor_widgets:
+            content += "\n[randr]\n"
+            for mid, w in self.monitor_widgets.items():
+                en = 'true' if w['enable_switch'].get_active() else 'false'
+                b_val = w['brightness_scale'].get_value() / 100.0
+                off_val = int(w['offset_scale'].get_value())
+                r = w['r_scale'].get_value()
+                g = w['g_scale'].get_value()
+                b = w['b_scale'].get_value()
+                content += f"crtc{mid}-enabled={en}\n"
+                content += f"crtc{mid}-brightness={b_val:.2f}\n"
+                content += f"crtc{mid}-offset={off_val}\n"
+                content += f"crtc{mid}-gamma={r:.3f}:{g:.3f}:{b:.3f}\n"
+
+            for mid, w in self.monitor_widgets.items():
+                en = 'true' if w['enable_switch'].get_active() else 'false'
+                b_val = w['brightness_scale'].get_value() / 100.0
+                off_val = int(w['offset_scale'].get_value())
+                r = w['r_scale'].get_value()
+                g = w['g_scale'].get_value()
+                b = w['b_scale'].get_value()
+                mname = w['name']
+                content += f"\n[monitor:{mname}]\n"
+                content += f"id={mid}\n"
+                content += f"enabled={en}\n"
+                content += f"brightness={b_val:.2f}\n"
+                content += f"temp-offset={off_val}\n"
+                content += f"gamma={r:.3f}:{g:.3f}:{b:.3f}\n"
+
         try:
             with open(config_path, 'w') as f:
                 f.write(content)
@@ -1056,6 +1445,57 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
                             self.autobrightness_switch.set_active(cfg[sec]['auto-brightness'].lower() in ('1', 'true', 'on', 'yes'))
                         if 'battery-saver' in cfg[sec]:
                             self.battery_switch.set_active(cfg[sec]['battery-saver'].lower() in ('1', 'true', 'on', 'yes', 'auto'))
+
+                    # Check [randr] per-CRTC options
+                    if 'randr' in cfg:
+                        sec_randr = cfg['randr']
+                        for mid, w in self.monitor_widgets.items():
+                            en_key = f'crtc{mid}-enabled'
+                            br_key = f'crtc{mid}-brightness'
+                            off_key = f'crtc{mid}-offset'
+                            ga_key = f'crtc{mid}-gamma'
+                            if en_key in sec_randr:
+                                en = sec_randr[en_key].lower() in ('1', 'true', 'on', 'yes')
+                                w['enable_switch'].set_active(en)
+                                w['content_box'].set_sensitive(en)
+                            if br_key in sec_randr:
+                                b = int(float(sec_randr[br_key]) * 100)
+                                w['brightness_scale'].set_value(b)
+                                w['brightness_badge'].set_text(f"{b}%")
+                            if off_key in sec_randr:
+                                off = int(sec_randr[off_key])
+                                w['offset_scale'].set_value(off)
+                                w['offset_badge'].set_text(f"{'+' if off > 0 else ''}{off}K")
+                            if ga_key in sec_randr:
+                                parts = sec_randr[ga_key].split(':')
+                                if len(parts) == 3:
+                                    w['r_scale'].set_value(float(parts[0]))
+                                    w['g_scale'].set_value(float(parts[1]))
+                                    w['b_scale'].set_value(float(parts[2]))
+
+                    # Also check [monitor:<name>] sections
+                    for mid, w in self.monitor_widgets.items():
+                        sec_name = f"monitor:{w['name']}"
+                        if sec_name in cfg:
+                            s = cfg[sec_name]
+                            if 'enabled' in s:
+                                en = s['enabled'].lower() in ('1', 'true', 'on', 'yes')
+                                w['enable_switch'].set_active(en)
+                                w['content_box'].set_sensitive(en)
+                            if 'brightness' in s:
+                                b = int(float(s['brightness']) * 100)
+                                w['brightness_scale'].set_value(b)
+                                w['brightness_badge'].set_text(f"{b}%")
+                            if 'temp-offset' in s:
+                                off = int(s['temp-offset'])
+                                w['offset_scale'].set_value(off)
+                                w['offset_badge'].set_text(f"{'+' if off > 0 else ''}{off}K")
+                            if 'gamma' in s:
+                                parts = s['gamma'].split(':')
+                                if len(parts) == 3:
+                                    w['r_scale'].set_value(float(parts[0]))
+                                    w['g_scale'].set_value(float(parts[1]))
+                                    w['b_scale'].set_value(float(parts[2]))
                     break
                 except Exception:
                     pass
@@ -1165,6 +1605,10 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         if lat != 0.0 or lon != 0.0:
             self.lat_entry.set_text(str(lat))
             self.lon_entry.set_text(str(lon))
+
+        # Update attached displays UI
+        monitors_data = st.get('monitors', [])
+        self.update_monitors_ui(monitors_data)
 
         self.refresh_diagnostics()
 

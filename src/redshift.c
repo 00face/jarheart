@@ -631,6 +631,45 @@ ease_fade(double t)
 }
 
 
+#ifndef _WIN32
+static void
+sync_monitors_to_ipc(const gamma_method_t *gamma_method, daemon_ipc_state_t *ipc_state)
+{
+# ifdef ENABLE_RANDR
+	if (strcmp(gamma_method->name, "randr") == 0) {
+		int n = randr_get_crtc_count();
+		if (n > MAX_IPC_MONITORS) n = MAX_IPC_MONITORS;
+		ipc_state->monitor_count = n;
+		for (int i = 0; i < n; i++) {
+			ipc_state->monitors[i].id = i;
+			randr_get_crtc_info(i, ipc_state->monitors[i].name, sizeof(ipc_state->monitors[i].name),
+					    &ipc_state->monitors[i].active,
+					    &ipc_state->monitors[i].enabled,
+					    &ipc_state->monitors[i].brightness,
+					    ipc_state->monitors[i].gamma_mult,
+					    &ipc_state->monitors[i].temp_offset);
+		}
+	}
+# endif
+# ifdef ENABLE_WAYLAND
+	if (strcmp(gamma_method->name, "wayland") == 0) {
+		int n = wayland_get_output_count();
+		if (n > MAX_IPC_MONITORS) n = MAX_IPC_MONITORS;
+		ipc_state->monitor_count = n;
+		for (int i = 0; i < n; i++) {
+			ipc_state->monitors[i].id = i;
+			wayland_get_output_info(i, ipc_state->monitors[i].name, sizeof(ipc_state->monitors[i].name),
+						&ipc_state->monitors[i].active,
+						&ipc_state->monitors[i].enabled,
+						&ipc_state->monitors[i].brightness,
+						ipc_state->monitors[i].gamma_mult,
+						&ipc_state->monitors[i].temp_offset);
+		}
+	}
+# endif
+}
+#endif
+
 /* Run continual mode loop
    This is the main loop of the continual mode which keeps track of the
    current time and continuously updates the screen to the appropriate
@@ -672,7 +711,29 @@ run_continual_mode(const location_provider_t *provider,
 	ipc_state.dusk = scheme->dusk;
 	ipc_state.als_threshold = 50;
 # ifdef ENABLE_RANDR
-	ipc_set_crtc_calibration_callback(randr_set_crtc_calibration);
+	if (strcmp(method->name, "randr") == 0) {
+		ipc_set_crtc_calibration_callback(randr_set_crtc_calibration);
+		ipc_set_monitor_callbacks(
+			randr_set_crtc_enabled,
+			randr_set_crtc_brightness,
+			randr_set_crtc_calibration,
+			randr_set_crtc_temp_offset,
+			randr_reset_crtc
+		);
+		sync_monitors_to_ipc(method, &ipc_state);
+	}
+# endif
+# ifdef ENABLE_WAYLAND
+	if (strcmp(method->name, "wayland") == 0) {
+		ipc_set_monitor_callbacks(
+			wayland_set_output_enabled,
+			wayland_set_output_brightness,
+			wayland_set_output_calibration,
+			wayland_set_output_temp_offset,
+			wayland_reset_output
+		);
+		sync_monitors_to_ipc(method, &ipc_state);
+	}
 # endif
 #endif
 
@@ -1253,6 +1314,7 @@ run_continual_mode(const location_provider_t *provider,
 					if (ipc_state.state_changed) {
 						disabled = ipc_state.disabled;
 						ipc_state.state_changed = 0;
+						method->set_temperature(method_state, &interp, preserve_gamma);
 					}
 					if (ipc_state.requested_exit) {
 						done = 1;
@@ -1266,6 +1328,9 @@ run_continual_mode(const location_provider_t *provider,
 						int reconfigured = method->handle(method_state);
 						if (reconfigured > 0) {
 							/* Display reconfigured (hotplug, mode change, wake) - reapply gamma */
+#ifndef _WIN32
+							sync_monitors_to_ipc(method, &ipc_state);
+#endif
 							method->set_temperature(method_state, &interp, preserve_gamma);
 						}
 					}

@@ -48,6 +48,15 @@ static float g_mock_crtc_r = 0.0f;
 static float g_mock_crtc_g = 0.0f;
 static float g_mock_crtc_b = 0.0f;
 
+static int g_mock_mon_id = -1;
+static int g_mock_mon_enabled = -1;
+static float g_mock_mon_brightness = 0.0f;
+static float g_mock_mon_r = 0.0f;
+static float g_mock_mon_g = 0.0f;
+static float g_mock_mon_b = 0.0f;
+static int g_mock_mon_temp_offset = 0;
+static int g_mock_mon_reset_id = -1;
+
 static int
 mock_crtc_calibration(int id, float r, float g, float b)
 {
@@ -55,6 +64,47 @@ mock_crtc_calibration(int id, float r, float g, float b)
 	g_mock_crtc_r = r;
 	g_mock_crtc_g = g;
 	g_mock_crtc_b = b;
+	return 0;
+}
+
+static int
+mock_mon_enable(int id, int en)
+{
+	g_mock_mon_id = id;
+	g_mock_mon_enabled = en;
+	return 0;
+}
+
+static int
+mock_mon_brightness(int id, float b)
+{
+	g_mock_mon_id = id;
+	g_mock_mon_brightness = b;
+	return 0;
+}
+
+static int
+mock_mon_calibration(int id, float r, float g, float b)
+{
+	g_mock_mon_id = id;
+	g_mock_mon_r = r;
+	g_mock_mon_g = g;
+	g_mock_mon_b = b;
+	return 0;
+}
+
+static int
+mock_mon_temp_offset(int id, int off)
+{
+	g_mock_mon_id = id;
+	g_mock_mon_temp_offset = off;
+	return 0;
+}
+
+static int
+mock_mon_reset(int id)
+{
+	g_mock_mon_reset_id = id;
 	return 0;
 }
 
@@ -432,6 +482,93 @@ test_command_dispatch(void)
 	assert(state.crtc_calibrations[1][0] == 1.05f);
 	assert(state.crtc_calibrations[1][1] == 0.98f);
 	assert(state.crtc_calibrations[1][2] == 1.00f);
+
+	/* Test Multi-Monitor Independent Controls */
+	ipc_set_monitor_callbacks(mock_mon_enable, mock_mon_brightness,
+				  mock_mon_calibration, mock_mon_temp_offset, mock_mon_reset);
+	state.monitor_count = 2;
+	state.monitors[0].id = 0;
+	snprintf(state.monitors[0].name, sizeof(state.monitors[0].name), "eDP-1");
+	state.monitors[0].active = 1;
+	state.monitors[0].enabled = 1;
+	state.monitors[0].brightness = 1.0f;
+	state.monitors[0].gamma_mult[0] = 1.0f;
+	state.monitors[0].gamma_mult[1] = 1.0f;
+	state.monitors[0].gamma_mult[2] = 1.0f;
+	state.monitors[0].temp_offset = 0;
+
+	state.monitors[1].id = 1;
+	snprintf(state.monitors[1].name, sizeof(state.monitors[1].name), "HDMI-1");
+	state.monitors[1].active = 1;
+	state.monitors[1].enabled = 1;
+	state.monitors[1].brightness = 1.0f;
+	state.monitors[1].gamma_mult[0] = 1.0f;
+	state.monitors[1].gamma_mult[1] = 1.0f;
+	state.monitors[1].gamma_mult[2] = 1.0f;
+	state.monitors[1].temp_offset = 0;
+
+	/* Test 'monitors' command */
+	r = ipc_dispatch_command("monitors", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "Attached Displays (2 detected)") != NULL);
+	assert(strstr(resp, "eDP-1") != NULL);
+	assert(strstr(resp, "HDMI-1") != NULL);
+
+	/* Test 'monitor-enable' */
+	r = ipc_dispatch_command("monitor-enable 1 off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_mon_id == 1);
+	assert(g_mock_mon_enabled == 0);
+	assert(state.monitors[1].enabled == 0);
+	assert(strstr(resp, "Bypassed") != NULL);
+
+	r = ipc_dispatch_command("monitor-enable 1 on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_mon_id == 1);
+	assert(g_mock_mon_enabled == 1);
+	assert(state.monitors[1].enabled == 1);
+	assert(strstr(resp, "Enabled") != NULL);
+
+	/* Test 'monitor-brightness' */
+	r = ipc_dispatch_command("monitor-brightness 1 0.75", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_mon_id == 1);
+	assert(fabsf(g_mock_mon_brightness - 0.75f) < 0.001f);
+	assert(fabsf(state.monitors[1].brightness - 0.75f) < 0.001f);
+	assert(strstr(resp, "0.75") != NULL);
+
+	/* Test 'monitor-calibrate' */
+	r = ipc_dispatch_command("monitor-calibrate 1 1.08 0.96 1.02", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_mon_id == 1);
+	assert(fabsf(g_mock_mon_r - 1.08f) < 0.001f);
+	assert(fabsf(g_mock_mon_g - 0.96f) < 0.001f);
+	assert(fabsf(g_mock_mon_b - 1.02f) < 0.001f);
+	assert(fabsf(state.monitors[1].gamma_mult[0] - 1.08f) < 0.001f);
+
+	/* Test 'monitor-offset' */
+	r = ipc_dispatch_command("monitor-offset 1 -250", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_mon_id == 1);
+	assert(g_mock_mon_temp_offset == -250);
+	assert(state.monitors[1].temp_offset == -250);
+	assert(strstr(resp, "-250K") != NULL);
+
+	/* Verify 'status --json' contains populated monitors array */
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"monitors\": [") != NULL);
+	assert(strstr(resp, "\"name\": \"HDMI-1\"") != NULL);
+	assert(strstr(resp, "\"temp_offset\": -250") != NULL);
+
+	/* Test 'monitor-reset' */
+	r = ipc_dispatch_command("monitor-reset 1", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_mon_reset_id == 1);
+	assert(state.monitors[1].enabled == 1);
+	assert(fabsf(state.monitors[1].brightness - 1.0f) < 0.001f);
+	assert(state.monitors[1].temp_offset == 0);
+	assert(fabsf(state.monitors[1].gamma_mult[0] - 1.0f) < 0.001f);
 
 	/* Test 'reset' clears presets, modes, battery saver, and CRTC calibration */
 	state.darkroom = 1;

@@ -24,7 +24,15 @@
 
 extern const gamma_method_t randr_gamma_method;
 
-/* Set per-CRTC RGB calibration multiplier (WO-013) */
+/* Multi-monitor independent control functions */
 int randr_set_crtc_calibration(int crtc_num, float r, float g, float b);
+int randr_set_crtc_enabled(int crtc_num, int enabled);
+int randr_set_crtc_brightness(int crtc_num, float brightness);
+int randr_set_crtc_temp_offset(int crtc_num, int temp_offset);
+int randr_reset_crtc(int crtc_num);
+int randr_get_crtc_count(void);
+int randr_get_crtc_info(int crtc_num, char *name_buf, size_t name_buf_size,
+			int *active, int *enabled, float *brightness,
+			float gamma_mult[3], int *temp_offset);
 
 #endif /* ! REDSHIFT_GAMMA_RANDR_H */

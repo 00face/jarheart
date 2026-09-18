@@ -695,6 +695,31 @@ In the engineering of display-altering systems software, software defects immedi
 
 ---
 
+### WO-031: Independent Multi-Monitor Control & Display Ergonomics Suite
+- **Status**: `COMPLETED`
+- **Priority**: `P1 - High`
+- **Type**: `Multi-Display Ergonomics / Backend & UI Architecture`
+- **Prerequisites**: WO-006, WO-013, WO-017, WO-026
+- **Scientific & Practical Foundation**: Modern multi-head workstations frequently pair disparate display panels (e.g. built-in wide-gamut laptop displays with external reference monitors for video/color grading, or dual monitors with differing native color temperatures). Blanket gamma tinting corrupts color fidelity on external monitors dedicated to color-critical work. Users require independent per-monitor control: the ability to bypass circadian adjustments on specific displays (maintaining pristine 6500K neutral identity), modulate independent brightness multipliers, tune temperature offsets, and calibrate subpixel RGB white points.
+- **Scope & Technical Plan**:
+  1. *Backend CRTC & Output State Expansion*:
+     - `src/gamma-randr.h` & `src/gamma-randr.c`: Expanded `randr_crtc_state_t` with connector names (`XRRGetOutputInfo`), active/enabled flags, independent brightness multipliers, RGB calibration factors, and temperature offsets. Handled `enabled == 0` bypass to linear identity ramps. Implemented `randr_set_crtc_enabled()`, `randr_set_crtc_brightness()`, `randr_set_crtc_temp_offset()`, `randr_reset_crtc()`, and `randr_get_crtc_info()`.
+     - `src/gamma-wayland.h` & `src/gamma-wayland.c`: Expanded `wayland_output_t` with output connector names, enable/bypass control, brightness multipliers, RGB calibration, and temperature offsets with sub-frame blend curves.
+  2. *IPC Protocol & Telemetry Serialization*:
+     - `src/ipc.h` & `src/ipc.c`: Defined `ipc_monitor_info_t`, registered monitor callbacks (`ipc_set_monitor_callbacks()`), serialized `"monitors": [...]` JSON array in `status -j`, and implemented IPC commands: `monitors`, `monitor-enable`, `monitor-brightness`, `monitor-calibrate`, `monitor-offset`, `monitor-reset`, and `monitor-reset-all`.
+  3. *GTK Settings UI & Tray Menu Subsystem*:
+     - `src/redshift-gtk/settings_dialog.py`: Created dedicated "🖥️ Displays" tab with dynamic per-monitor card rendering (`build_monitor_card`), live enable/bypass switches (bypassing monitor to neutral 6500K), independent brightness sliders (10%-150%), temperature offset sliders (-2000K to +2000K), hardware RGB calibration balance, single/all monitor reset actions, and config persistence (`[randr]` and `[monitor:<name>]`).
+     - `src/redshift-gtk/statusicon.py`: Added `🖥️ Displays` tray submenu with per-monitor enable/bypass check items, live status/offset display, reset actions, and shortcut to display preferences.
+  4. *Test Suite & Verification Protocol*:
+     - `tests/test_ipc.c`: Added mock monitor callbacks, comprehensive tests for `monitors`, `monitor-enable`, `monitor-brightness`, `monitor-calibrate`, `monitor-offset`, `monitor-reset`, and JSON serialization.
+- **Verification Protocol**:
+  - Meson test suite passed 5/5 in 0.04s.
+  - Zero compiler warnings under `-Wall -Wextra -pedantic` with strict ISO C11 adherence.
+  - Python GUI syntax and execution validated across CLI, GTK Settings modal, and Tray menu.
+  - Dynamic multi-monitor card rendering and IPC callback synchronization verified.
+
+---
+
 ## 5. Architectural Verification Matrix
 
 | Verification Vector | Tool / Command | Invariant Requirement | Status |
@@ -710,6 +735,7 @@ In the engineering of display-altering systems software, software defects immedi
 | **Astigmatism Halation Floor**| `tests/test_colorramp` | $R[0] \ge 3200, R[max] \le 57000$ (5% floor, 86% peak)| **PASS (Verified)** |
 | **Melanopic Notch Filter**    | `tests/test_colorramp` | Selective 35% suppression on 480nm cyan band | **PASS (Verified)** |
 | **CVD Daltonization Curves**  | `tests/test_colorramp` | Protan, Deutan, Tritan, Achromat S-curve | **PASS (Verified)** |
+| **Independent Multi-Monitor (WO-031)** | `tests/test_ipc` / `status -j` / GUI | Per-display bypass, brightness, offset, RGB calibration | **PASS (Verified)** |
 | **CRTC Calibration (WO-013)** | `tests/test_ipc` / `crtc-calibrate` | Multi-monitor independent gamma multipliers | **PASS (Verified)** |
 | **Ambient Auto-Brightness (WO-014)** | `status -j` / IIO lux reactor | Logarithmic lux-to-brightness modulation | **PASS (Verified)** |
 | **Wayland Blend Curves (WO-017)** | `src/gamma-wayland.c` | 4-step sub-frame 60fps interpolation & flush | **PASS (Verified)** |

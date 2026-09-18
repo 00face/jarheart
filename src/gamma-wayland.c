@@ -48,9 +48,16 @@
 #include "redshift.h"
 #include "colorramp.h"
 
+#include <math.h>
+
 typedef struct wayland_output {
 	struct wl_output *wl_output;
 	uint32_t id;
+	char name[32];
+	int enabled;           /* 1 = adjustments applied, 0 = bypassed (linear identity) */
+	float brightness_mult; /* default 1.0f */
+	float gamma_mult[3];   /* default 1.0f */
+	int temp_offset;       /* default 0 */
 	struct zwlr_gamma_control_v1 *gamma_control;
 	uint32_t ramp_size;
 	int failed;
@@ -66,6 +73,115 @@ typedef struct {
 	struct zwlr_gamma_control_manager_v1 *manager;
 	wayland_output_t *outputs;
 } wayland_state_t;
+
+static wayland_state_t *g_wayland_state = NULL;
+
+static wayland_output_t *
+get_output_by_index(int idx)
+{
+	if (g_wayland_state == NULL || idx < 0) return NULL;
+	int cur = 0;
+	for (wayland_output_t *o = g_wayland_state->outputs; o != NULL; o = o->next) {
+		if (cur == idx) return o;
+		cur++;
+	}
+	return NULL;
+}
+
+int
+wayland_set_output_enabled(int output_idx, int enabled)
+{
+	wayland_output_t *o = get_output_by_index(output_idx);
+	if (!o) return -1;
+	o->enabled = enabled ? 1 : 0;
+	return 0;
+}
+
+int
+wayland_set_output_brightness(int output_idx, float brightness)
+{
+	wayland_output_t *o = get_output_by_index(output_idx);
+	if (!o) return -1;
+	if (brightness < 0.1f) brightness = 0.1f;
+	if (brightness > 2.0f) brightness = 2.0f;
+	o->brightness_mult = brightness;
+	return 0;
+}
+
+int
+wayland_set_output_calibration(int output_idx, float r, float g, float b)
+{
+	wayland_output_t *o = get_output_by_index(output_idx);
+	if (!o) return -1;
+	if (r < 0.1f) r = 0.1f;
+	if (r > 2.0f) r = 2.0f;
+	if (g < 0.1f) g = 0.1f;
+	if (g > 2.0f) g = 2.0f;
+	if (b < 0.1f) b = 0.1f;
+	if (b > 2.0f) b = 2.0f;
+	o->gamma_mult[0] = r;
+	o->gamma_mult[1] = g;
+	o->gamma_mult[2] = b;
+	return 0;
+}
+
+int
+wayland_set_output_temp_offset(int output_idx, int temp_offset)
+{
+	wayland_output_t *o = get_output_by_index(output_idx);
+	if (!o) return -1;
+	if (temp_offset < -5000) temp_offset = -5000;
+	if (temp_offset > 5000) temp_offset = 5000;
+	o->temp_offset = temp_offset;
+	return 0;
+}
+
+int
+wayland_reset_output(int output_idx)
+{
+	wayland_output_t *o = get_output_by_index(output_idx);
+	if (!o) return -1;
+	o->enabled = 1;
+	o->brightness_mult = 1.0f;
+	o->gamma_mult[0] = 1.0f;
+	o->gamma_mult[1] = 1.0f;
+	o->gamma_mult[2] = 1.0f;
+	o->temp_offset = 0;
+	return 0;
+}
+
+int
+wayland_get_output_count(void)
+{
+	if (g_wayland_state == NULL) return 0;
+	int count = 0;
+	for (wayland_output_t *o = g_wayland_state->outputs; o != NULL; o = o->next) {
+		count++;
+	}
+	return count;
+}
+
+int
+wayland_get_output_info(int output_idx, char *name_buf, size_t name_buf_size,
+			int *active, int *enabled, float *brightness,
+			float gamma_mult[3], int *temp_offset)
+{
+	wayland_output_t *o = get_output_by_index(output_idx);
+	if (!o) return -1;
+	if (name_buf && name_buf_size > 0) {
+		snprintf(name_buf, name_buf_size, "%s", o->name[0] ? o->name : "WL-Output");
+	}
+	if (active) *active = !o->failed && o->ramp_size > 0;
+	if (enabled) *enabled = o->enabled;
+	if (brightness) *brightness = o->brightness_mult;
+	if (gamma_mult) {
+		gamma_mult[0] = o->gamma_mult[0];
+		gamma_mult[1] = o->gamma_mult[1];
+		gamma_mult[2] = o->gamma_mult[2];
+	}
+	if (temp_offset) *temp_offset = o->temp_offset;
+	return 0;
+}
 
 
 #ifndef MFD_CLOEXEC
@@ -132,6 +248,13 @@ registry_handle_global(void *data, struct wl_registry *registry,
 		wayland_output_t *output = calloc(1, sizeof(wayland_output_t));
 		if (output != NULL) {
 			output->id = id;
+			output->enabled = 1;
+			output->brightness_mult = 1.0f;
+			output->gamma_mult[0] = 1.0f;
+			output->gamma_mult[1] = 1.0f;
+			output->gamma_mult[2] = 1.0f;
+			output->temp_offset = 0;
+			snprintf(output->name, sizeof(output->name), "WL-%u", id);
 			output->wl_output = wl_registry_bind(registry, id, &wl_output_interface, 1);
 			output->next = state->outputs;
 			state->outputs = output;
@@ -213,6 +336,7 @@ wayland_init(wayland_state_t **state)
 static int
 wayland_start(wayland_state_t *state)
 {
+	g_wayland_state = state;
 	for (wayland_output_t *o = state->outputs; o != NULL; o = o->next) {
 		o->gamma_control = zwlr_gamma_control_manager_v1_get_gamma_control(
 			state->manager, o->wl_output);
@@ -271,6 +395,10 @@ wayland_free(wayland_state_t *state)
 		wl_display_disconnect(state->display);
 	}
 
+	if (g_wayland_state == state) {
+		g_wayland_state = NULL;
+	}
+
 	free(state);
 }
 
@@ -311,14 +439,61 @@ wayland_set_temperature(
 			return -1;
 		}
 
+		/* If output is bypassed, write clean linear identity ramp */
+		if (!o->enabled) {
+			int fd = create_shm_file((off_t)total_bytes);
+			if (fd >= 0) {
+				uint16_t *table = mmap(NULL, total_bytes, PROT_READ | PROT_WRITE,
+						       MAP_SHARED, fd, 0);
+				if (table != MAP_FAILED) {
+					for (uint32_t i = 0; i < o->ramp_size; i++) {
+						uint16_t val = (uint16_t)(((double)i / (o->ramp_size > 1 ? (o->ramp_size - 1) : 1)) * UINT16_MAX);
+						table[0 * o->ramp_size + i] = val;
+						table[1 * o->ramp_size + i] = val;
+						table[2 * o->ramp_size + i] = val;
+					}
+					munmap(table, total_bytes);
+					zwlr_gamma_control_v1_set_gamma(o->gamma_control, fd);
+				}
+				close(fd);
+			}
+			free(target_r); free(target_g); free(target_b);
+			continue;
+		}
+
+		color_setting_t output_setting = *setting;
+		if (o->temp_offset != 0) {
+			int target = (int)output_setting.temperature + o->temp_offset;
+			if (target < 1000) target = 1000;
+			if (target > 25000) target = 25000;
+			output_setting.temperature = (unsigned int)target;
+		}
+		if (o->brightness_mult != 1.0f) {
+			float b = output_setting.brightness * o->brightness_mult;
+			if (b < 0.1f) b = 0.1f;
+			if (b > 2.0f) b = 2.0f;
+			output_setting.brightness = b;
+		}
+
 		for (uint32_t i = 0; i < o->ramp_size; i++) {
-			uint16_t val = (uint16_t)(((double)i / (o->ramp_size - 1)) * UINT16_MAX);
+			uint16_t val = (uint16_t)(((double)i / (o->ramp_size > 1 ? (o->ramp_size - 1) : 1)) * UINT16_MAX);
 			target_r[i] = val;
 			target_g[i] = val;
 			target_b[i] = val;
 		}
 
-		colorramp_fill(target_r, target_g, target_b, (int)o->ramp_size, setting);
+		colorramp_fill(target_r, target_g, target_b, (int)o->ramp_size, &output_setting);
+
+		if (o->gamma_mult[0] != 1.0f || o->gamma_mult[1] != 1.0f || o->gamma_mult[2] != 1.0f) {
+			for (uint32_t i = 0; i < o->ramp_size; i++) {
+				double nr = (double)target_r[i] * o->gamma_mult[0];
+				double ng = (double)target_g[i] * o->gamma_mult[1];
+				double nb = (double)target_b[i] * o->gamma_mult[2];
+				target_r[i] = (uint16_t)fmin(UINT16_MAX, fmax(0.0, nr));
+				target_g[i] = (uint16_t)fmin(UINT16_MAX, fmax(0.0, ng));
+				target_b[i] = (uint16_t)fmin(UINT16_MAX, fmax(0.0, nb));
+			}
+		}
 
 		/* WO-017: If a prior ramp is active and differs, smoothly blend across sub-frames */
 		int blend_steps = (o->current_r != NULL) ? 4 : 1;

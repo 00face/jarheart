@@ -356,6 +356,12 @@ class RedshiftStatusIcon(object):
         cvd_menu_item.set_submenu(self.cvd_menu)
         self.status_menu.append(cvd_menu_item)
 
+        # Add Attached Displays submenu
+        self.displays_menu_item = Gtk.MenuItem.new_with_label(_('🖥️ Displays'))
+        self.displays_menu = Gtk.Menu()
+        self.displays_menu_item.set_submenu(self.displays_menu)
+        self.status_menu.append(self.displays_menu_item)
+
         self.status_menu.append(Gtk.SeparatorMenuItem())
 
         # Add Preferences & Settings modal action
@@ -602,14 +608,20 @@ class RedshiftStatusIcon(object):
     def pacer_cb(self, widget, mode):
         self.send_ipc('pacer ' + mode)
 
-    def show_settings_cb(self, widget, data=None):
+    def show_settings_cb(self, widget, page=None):
         if SettingsDialog is None:
             return
         if self.settings_dialog is None:
             self.settings_dialog = SettingsDialog(parent_statusicon=self)
         self.settings_dialog.refresh_state_from_daemon()
+        if page and isinstance(page, str) and hasattr(self.settings_dialog, 'stack'):
+            self.settings_dialog.stack.set_visible_child_name(page)
         self.settings_dialog.show_all()
         self.settings_dialog.present()
+
+    def display_item_toggled_cb(self, widget, mon_id):
+        en = widget.get_active()
+        self.send_ipc(f'monitor-enable {mon_id} {"on" if en else "off"}')
 
     def preset_cb(self, widget, preset_name):
         self.send_ipc('preset ' + preset_name)
@@ -702,12 +714,47 @@ class RedshiftStatusIcon(object):
                     self.cvd_radio_items[target_key].set_active(True)
                     for k, r in self.cvd_radio_items.items():
                         r.handler_unblock_by_func(self.cvd_select_cb)
+
+                # Synchronize Attached Displays submenu
+                monitors = st.get('monitors', [])
+                if not monitors:
+                    monitors = [{'id': 0, 'name': 'eDP-1', 'active': True, 'enabled': True, 'brightness': 1.0, 'temp_offset': 0}]
+
+                for child in self.displays_menu.get_children():
+                    self.displays_menu.remove(child)
+
+                for m in monitors:
+                    mid = m.get('id', 0)
+                    mname = m.get('name', f'Display {mid}')
+                    en = bool(m.get('enabled', True))
+                    b_pct = int(float(m.get('brightness', 1.0)) * 100)
+                    off = int(m.get('temp_offset', 0))
+                    status_str = _("Enabled") if en else _("Bypassed")
+                    details = f"{b_pct}%"
+                    if off != 0:
+                        details += f", {'+' if off > 0 else ''}{off}K"
+                    m_item = Gtk.CheckMenuItem.new_with_label(f"🖥️ {mname}: {status_str} ({details})")
+                    m_item.set_active(en)
+                    m_item.connect('toggled', self.display_item_toggled_cb, mid)
+                    self.displays_menu.append(m_item)
+
+                self.displays_menu.append(Gtk.SeparatorMenuItem())
+                reset_all_item = Gtk.MenuItem.new_with_label(_('↺ Reset All Displays'))
+                reset_all_item.connect('activate', lambda w: self.send_ipc('monitor-reset-all'))
+                self.displays_menu.append(reset_all_item)
+
+                configure_item = Gtk.MenuItem.new_with_label(_('⚙️ Configure Displays…'))
+                configure_item.connect('activate', lambda w: self.show_settings_cb(w, page="monitors"))
+                self.displays_menu.append(configure_item)
             except Exception:
                 pass
 
         self.status_menu.show_all()
-        self.status_menu.popup(None, None, Gtk.StatusIcon.position_menu,
-                               self.status_icon, button, time)
+        if hasattr(self, 'status_icon'):
+            self.status_menu.popup(None, None, Gtk.StatusIcon.position_menu,
+                                   self.status_icon, button, time)
+        else:
+            self.status_menu.popup(None, None, None, None, button, time)
 
     def toggle_cb(self, widget, data=None):
         """Callback when a request to toggle redshift was made."""

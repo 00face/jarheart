@@ -24,4 +24,15 @@
 
 extern const gamma_method_t wayland_gamma_method;
 
+/* Wayland multi-output independent control functions */
+int wayland_set_output_enabled(int output_idx, int enabled);
+int wayland_set_output_brightness(int output_idx, float brightness);
+int wayland_set_output_calibration(int output_idx, float r, float g, float b);
+int wayland_set_output_temp_offset(int output_idx, int temp_offset);
+int wayland_reset_output(int output_idx);
+int wayland_get_output_count(void);
+int wayland_get_output_info(int output_idx, char *name_buf, size_t name_buf_size,
+			    int *active, int *enabled, float *brightness,
+			    float gamma_mult[3], int *temp_offset);
+
 #endif /* ! REDSHIFT_GAMMA_WAYLAND_H */

@@ -131,10 +131,12 @@ m4/lt~obsolete.m4
 /po/quot.sed
 /po/remove-potcdate.sin
 
-# Meson
+# Meson & Distribution
 /build/
 /subprojects/
+/dist/
 
 # Python
 __pycache__/
 *.pyc
+

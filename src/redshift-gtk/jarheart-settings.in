@@ -5,10 +5,20 @@
 # Copyright (c) 2026  Jarheart Contributors
 # Distributed under the GNU General Public License v3 or later.
 
+import os
 import sys
 
-# Some non-standard install paths may need to be added
-sys.path.append('@pythondir@')
+# Dynamic resolution of python package path
+_bindir = os.path.dirname(os.path.abspath(__file__))
+_prefix = os.path.dirname(_bindir)
+for _p in [
+    os.path.join(_prefix, 'lib', 'python3', 'dist-packages'),
+    os.path.join(_prefix, 'lib', 'python3', 'site-packages'),
+    '@pythondir@',
+    os.path.expanduser('~/.local/lib/python3/dist-packages')
+]:
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
 
 if __name__ == '__main__':
     from redshift_gtk.settings_dialog import main

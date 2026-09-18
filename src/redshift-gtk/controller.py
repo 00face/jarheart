@@ -85,10 +85,11 @@ class RedshiftController(GObject.GObject):
             self._error_buffer = InputBuffer()
             self._errors = ''
 
-            # Set non blocking
-            fcntl.fcntl(
-                self._process[2], fcntl.F_SETFL,
-                fcntl.fcntl(self._process[2], fcntl.F_GETFL) | os.O_NONBLOCK)
+            # Set non-blocking on stdout and stderr
+            for fd in (self._process[2], self._process[3]):
+                fcntl.fcntl(
+                    fd, fcntl.F_SETFL,
+                    fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
 
             # Add watch on child process
             GLib.child_watch_add(
@@ -206,7 +207,13 @@ class RedshiftController(GObject.GObject):
     def _child_data_cb(self, f, cond, data):
         """Called when the child process has new data on stdout/stderr."""
         stdout, ib = data
-        ib.buf += os.read(f, 256).decode('utf-8')
+        try:
+            chunk = os.read(f, 256)
+            if not chunk:
+                return False
+            ib.buf += chunk.decode('utf-8', errors='replace')
+        except OSError:
+            return False
 
         # Split input at line break
         while True:

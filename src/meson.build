@@ -5,6 +5,7 @@ jarheart_sources = files(
   'hooks.c',
   'ipc.c',
   'location-manual.c',
+  'location-timezone.c',
   'options.c',
   'pipeutils.c',
   'redshift.c',

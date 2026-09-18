@@ -33,3 +33,13 @@ test_ipc = executable(
 )
 test('ipc', test_ipc)
 
+test_timezone = executable(
+  'test_timezone',
+  'test_timezone.c',
+  '../src/location-timezone.c',
+  include_directories: [inc_root, inc_src],
+  dependencies: [m_dep],
+)
+test('timezone', test_timezone)
+
+

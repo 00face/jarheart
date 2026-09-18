@@ -102,6 +102,7 @@ int poll(struct pollfd *fds, int nfds, int timeout) { abort(); return -1; }
 
 
 #include "location-manual.h"
+#include "location-timezone.h"
 
 #ifdef ENABLE_GEOCLUE2
 # include "location-geoclue2.h"
@@ -659,9 +660,20 @@ run_continual_mode(const location_provider_t *provider,
 		fputs(_("Waiting for initial location"
 			" to become available...\n"), stderr);
 
-		/* Get initial location from provider */
-		r = provider_get_location(provider, location_state, -1, &loc);
-		if (r < 0) {
+		/* Get initial location from provider. Use a 4s timeout for geoclue2 to prevent hanging. */
+		int init_timeout = (strcmp(provider->name, "geoclue2") == 0) ? 4000 : -1;
+		r = provider_get_location(provider, location_state, init_timeout, &loc);
+		if (r <= 0) {
+			if (strcmp(provider->name, "geoclue2") == 0) {
+				char tz_name[128] = {0};
+				if (location_timezone_resolve(&loc, tz_name, sizeof(tz_name)) == 0) {
+					fprintf(stderr, _("GeoClue2 unavailable (no WiFi/GPS). Automatically resolved location from system timezone (%s): %.2f N, %.2f W\n"),
+					        tz_name, loc.lat, -loc.lon);
+					r = 1;
+				}
+			}
+		}
+		if (r <= 0) {
 			fputs(_("Unable to get location"
 				" from provider.\n"), stderr);
 			return -1;
@@ -1052,6 +1064,7 @@ main(int argc, char *argv[])
 #ifdef ENABLE_CORELOCATION
 		corelocation_location_provider,
 #endif
+		timezone_location_provider,
 		manual_location_provider,
 		{ NULL }
 	};
@@ -1296,10 +1309,21 @@ main(int argc, char *argv[])
 			fputs(_("Waiting for current location"
 				" to become available...\n"), stderr);
 
-			/* Wait for location provider. */
+			/* Wait for location provider. Use a 4s timeout for geoclue2 to prevent hanging. */
+			int init_timeout = (strcmp(options.provider->name, "geoclue2") == 0) ? 4000 : -1;
 			int r = provider_get_location(
-				options.provider, location_state, -1, &loc);
-			if (r < 0) {
+				options.provider, location_state, init_timeout, &loc);
+			if (r <= 0) {
+				if (strcmp(options.provider->name, "geoclue2") == 0) {
+					char tz_name[128] = {0};
+					if (location_timezone_resolve(&loc, tz_name, sizeof(tz_name)) == 0) {
+						fprintf(stderr, _("GeoClue2 unavailable (no WiFi/GPS). Automatically resolved location from system timezone (%s): %.2f N, %.2f W\n"),
+						        tz_name, loc.lat, -loc.lon);
+						r = 1;
+					}
+				}
+			}
+			if (r <= 0) {
 				fputs(_("Unable to get location"
 					" from provider.\n"), stderr);
 				exit(EXIT_FAILURE);

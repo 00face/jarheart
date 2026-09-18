@@ -1,0 +1,15 @@
+// Waybar module configuration for Jarheart
+// Add "custom/jarheart" to your modules list (e.g. "modules-right")
+
+"custom/jarheart": {
+    "format": " {text}",
+    "tooltip": true,
+    "interval": 5,
+    "return-type": "json",
+    "exec": "jarheart status --json",
+    "on-click": "jarheart toggle",
+    "on-click-right": "jarheart pause 1h",
+    "on-click-middle": "jarheart resume",
+    "on-scroll-up": "jarheart set 4500",
+    "on-scroll-down": "jarheart set 3200"
+}

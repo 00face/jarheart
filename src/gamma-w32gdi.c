@@ -235,5 +235,7 @@ const gamma_method_t w32gdi_gamma_method = {
 	(gamma_method_print_help_func *)w32gdi_print_help,
 	(gamma_method_set_option_func *)w32gdi_set_option,
 	(gamma_method_restore_func *)w32gdi_restore,
-	(gamma_method_set_temperature_func *)w32gdi_set_temperature
+	(gamma_method_set_temperature_func *)w32gdi_set_temperature,
+	NULL,
+	NULL
 };

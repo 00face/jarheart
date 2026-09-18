@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Name=Jarheart
+GenericName=Color temperature adjustment
+Comment=Modern display color temperature manager with Wayland & Compiz integration
+Exec=jarheart
+Icon=jarheart
+Terminal=true
+Type=Application
+Categories=Utility;System;DesktopSettings;
+Keywords=color;temperature;redshift;night;light;blue;screen;display;compositor;compiz;wayland;
+NoDisplay=true

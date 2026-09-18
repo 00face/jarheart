@@ -96,5 +96,7 @@ const gamma_method_t dummy_gamma_method = {
 	(gamma_method_print_help_func *)gamma_dummy_print_help,
 	(gamma_method_set_option_func *)gamma_dummy_set_option,
 	(gamma_method_restore_func *)gamma_dummy_restore,
-	(gamma_method_set_temperature_func *)gamma_dummy_set_temperature
+	(gamma_method_set_temperature_func *)gamma_dummy_set_temperature,
+	NULL,
+	NULL
 };

@@ -330,6 +330,22 @@ wayland_set_temperature(
 	return 0;
 }
 
+static int
+wayland_get_fd(wayland_state_t *state)
+{
+	return (state && state->display) ? wl_display_get_fd(state->display) : -1;
+}
+
+static int
+wayland_handle(wayland_state_t *state)
+{
+	if (state == NULL || state->display == NULL) return 0;
+	if (wl_display_dispatch_pending(state->display) < 0) {
+		return -1;
+	}
+	return 0;
+}
+
 const gamma_method_t wayland_gamma_method = {
 	"wayland", 1,
 	(gamma_method_init_func *)wayland_init,
@@ -338,5 +354,7 @@ const gamma_method_t wayland_gamma_method = {
 	(gamma_method_print_help_func *)wayland_print_help,
 	(gamma_method_set_option_func *)wayland_set_option,
 	(gamma_method_restore_func *)wayland_restore,
-	(gamma_method_set_temperature_func *)wayland_set_temperature
+	(gamma_method_set_temperature_func *)wayland_set_temperature,
+	(gamma_method_get_fd_func *)wayland_get_fd,
+	(gamma_method_handle_func *)wayland_handle
 };

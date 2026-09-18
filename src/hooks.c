@@ -41,33 +41,51 @@ static const char *period_names[] = {
 };
 
 
+static DIR *
+try_open_hooks(const char *base_dir, const char *app_name, char *hp)
+{
+	snprintf(hp, MAX_HOOK_PATH, "%s/%s/hooks", base_dir, app_name);
+	return opendir(hp);
+}
+
 /* Try to open the directory containing hooks. HP is a string
    of MAX_HOOK_PATH length that will be filled with the path
    of the returned directory. */
 static DIR *
 open_hooks_dir(char *hp)
 {
-	char *env;
-
-	if ((env = getenv("XDG_CONFIG_HOME")) != NULL &&
-	    env[0] != '\0') {
-		snprintf(hp, MAX_HOOK_PATH, "%s/redshift/hooks", env);
-		return opendir(hp);
+	const char *apps[] = { "jarheart", "redshift", NULL };
+	char *env = getenv("XDG_CONFIG_HOME");
+	if (env != NULL && env[0] != '\0') {
+		for (int i = 0; apps[i] != NULL; i++) {
+			DIR *d = try_open_hooks(env, apps[i], hp);
+			if (d != NULL) return d;
+		}
 	}
 
-	if ((env = getenv("HOME")) != NULL &&
-	    env[0] != '\0') {
-		snprintf(hp, MAX_HOOK_PATH, "%s/.config/redshift/hooks", env);
-		return opendir(hp);
+	env = getenv("HOME");
+	if (env != NULL && env[0] != '\0') {
+		char base[MAX_HOOK_PATH];
+		snprintf(base, sizeof(base), "%s/.config", env);
+		for (int i = 0; apps[i] != NULL; i++) {
+			DIR *d = try_open_hooks(base, apps[i], hp);
+			if (d != NULL) return d;
+		}
 	}
 
 #ifndef _WIN32
 	struct passwd *pwd = getpwuid(getuid());
-	snprintf(hp, MAX_HOOK_PATH, "%s/.config/redshift/hooks", pwd->pw_dir);
-	return opendir(hp);
-#else
-	return NULL;
+	if (pwd != NULL) {
+		char base[MAX_HOOK_PATH];
+		snprintf(base, sizeof(base), "%s/.config", pwd->pw_dir);
+		for (int i = 0; apps[i] != NULL; i++) {
+			DIR *d = try_open_hooks(base, apps[i], hp);
+			if (d != NULL) return d;
+		}
+	}
 #endif
+
+	return NULL;
 }
 
 /* Run hooks with a signal that the period changed. */
@@ -110,4 +128,41 @@ hooks_signal_period_change(period_t prev_period, period_t period)
 		}
 #endif
 	}
+	closedir(hooks_dir);
+}
+
+/* Run hooks with a signal that the status changed (enabled, disabled, paused). */
+void
+hooks_signal_status_change(const char *event_name, const char *status_name)
+{
+	char hooksdir_path[MAX_HOOK_PATH];
+	DIR *hooks_dir = open_hooks_dir(hooksdir_path);
+	if (hooks_dir == NULL) return;
+
+	struct dirent* ent;
+	while ((ent = readdir(hooks_dir)) != NULL) {
+		if (ent->d_name[0] == '\0' || ent->d_name[0] == '.') continue;
+
+		char *hook_name = ent->d_name;
+		char hook_path[MAX_HOOK_PATH + 256 + 1];
+		snprintf(hook_path, sizeof(hook_path), "%s/%s",
+			 hooksdir_path, hook_name);
+
+#ifndef _WIN32
+		pid_t pid = fork();
+		if (pid == (pid_t)-1) {
+			perror("fork");
+			continue;
+		} else if (pid == 0) { /* Child */
+			close(STDOUT_FILENO);
+
+			int r = execl(hook_path, hook_name,
+				      event_name, status_name, NULL);
+			if (r < 0 && errno != EACCES) perror("execl");
+
+			_exit(EXIT_FAILURE);
+		}
+#endif
+	}
+	closedir(hooks_dir);
 }

@@ -721,10 +721,14 @@ run_continual_mode(const location_provider_t *provider,
 			exiting = 0;
 		}
 
-		/* Print status change */
-		if (verbose && disabled != prev_disabled) {
-			printf(_("Status: %s\n"), disabled ?
-			       _("Disabled") : _("Enabled"));
+		/* Print status change and trigger hooks */
+		if (disabled != prev_disabled) {
+			if (verbose) {
+				printf(_("Status: %s\n"), disabled ?
+				       _("Disabled") : _("Enabled"));
+			}
+			hooks_signal_status_change("status-changed",
+				disabled ? "disabled" : "enabled");
 		}
 
 		prev_disabled = disabled;
@@ -876,10 +880,16 @@ run_continual_mode(const location_provider_t *provider,
 			loc_fd = provider->get_fd(location_state);
 		}
 
-		struct pollfd pollfds[2];
+		int gamma_fd = -1;
+		if (method->get_fd) {
+			gamma_fd = method->get_fd(method_state);
+		}
+
+		struct pollfd pollfds[3];
 		int nfds = 0;
 		int loc_idx = -1;
 		int ipc_idx = -1;
+		int gamma_idx = -1;
 
 		if (loc_fd >= 0) {
 			loc_idx = nfds;
@@ -898,6 +908,14 @@ run_continual_mode(const location_provider_t *provider,
 			nfds++;
 		}
 #endif
+
+		if (gamma_fd >= 0) {
+			gamma_idx = nfds;
+			pollfds[nfds].fd = gamma_fd;
+			pollfds[nfds].events = POLLIN;
+			pollfds[nfds].revents = 0;
+			nfds++;
+		}
 
 		if (nfds > 0) {
 			int r = poll(pollfds, nfds, delay);
@@ -920,6 +938,16 @@ run_continual_mode(const location_provider_t *provider,
 					}
 				}
 #endif
+
+				if (gamma_idx >= 0 && (pollfds[gamma_idx].revents & POLLIN)) {
+					if (method->handle) {
+						int reconfigured = method->handle(method_state);
+						if (reconfigured > 0) {
+							/* Display reconfigured (hotplug, mode change, wake) - reapply gamma */
+							method->set_temperature(method_state, &interp, preserve_gamma);
+						}
+					}
+				}
 
 				if (loc_idx >= 0 && (pollfds[loc_idx].revents & POLLIN)) {
 					/* Get new location and availability information. */

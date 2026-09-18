@@ -155,6 +155,53 @@ ipc_dispatch_command(
 
 		long remaining = is_paused ? (long)(state->pause_until - now) : 0;
 
+		if (arg != NULL && (strcasecmp(arg, "--json") == 0 || strcasecmp(arg, "-j") == 0 || strcasecmp(arg, "json") == 0)) {
+			snprintf(response_buf, response_buf_size,
+				 "{\n"
+				 "  \"status\": \"%s\",\n"
+				 "  \"period\": \"%s\",\n"
+				 "  \"temperature\": %u,\n"
+				 "  \"brightness\": %.2f,\n"
+				 "  \"gamma\": [%.3f, %.3f, %.3f],\n"
+				 "  \"latitude\": %.4f,\n"
+				 "  \"longitude\": %.4f,\n"
+				 "  \"method\": \"%s\",\n"
+				 "  \"paused\": %s,\n"
+				 "  \"pause_remaining\": %ld,\n"
+				 "  \"override_temp\": %d,\n"
+				 "  \"text\": \"%uK\",\n"
+				 "  \"alt\": \"%s\",\n"
+				 "  \"tooltip\": \"Jarheart: %s\\nPeriod: %s\\nTemperature: %uK\\nBrightness: %.2f\",\n"
+				 "  \"class\": \"%s\"\n"
+				 "}\n",
+				 status_str,
+				 period_str,
+				 state->current_setting.temperature,
+				 state->current_setting.brightness,
+				 state->current_setting.gamma[0],
+				 state->current_setting.gamma[1],
+				 state->current_setting.gamma[2],
+				 isnan(state->location.lat) ? 0.0 : state->location.lat,
+				 isnan(state->location.lon) ? 0.0 : state->location.lon,
+				 state->method_name ? state->method_name : "none",
+				 is_paused ? "true" : "false",
+				 remaining,
+				 state->override_temp,
+				 state->current_setting.temperature,
+				 period_str,
+				 status_str, period_str, state->current_setting.temperature, state->current_setting.brightness,
+				 state->disabled ? "disabled" : (is_paused ? "paused" : "enabled"));
+			return 0;
+		}
+
+		if (arg != NULL && strcasecmp(arg, "--xfce") == 0) {
+			snprintf(response_buf, response_buf_size,
+				 "<txt>%uK</txt><tool>Jarheart: %s (%s, %uK)</tool>\n",
+				 state->current_setting.temperature,
+				 status_str, period_str, state->current_setting.temperature);
+			return 0;
+		}
+
 		snprintf(response_buf, response_buf_size,
 			 "Status: %s\n"
 			 "Period: %s\n"
@@ -510,6 +557,20 @@ ipc_client_dispatch(int argc, char *argv[])
 	if (argc < 2) return -1;
 
 	const char *subcmd = argv[1];
+
+	if (strcmp(subcmd, "-j") == 0 || strcmp(subcmd, "--json") == 0) {
+		char resp_buf[JARHEART_IPC_BUF_SIZE];
+		int r = ipc_client_send_command("status --json", resp_buf, sizeof(resp_buf));
+		if (r < 0) {
+			char sock_path[108];
+			resolve_socket_paths(sock_path, sizeof(sock_path), NULL, 0);
+			fprintf(stderr, "jarheart: No running daemon found (tried %s)\n", sock_path);
+			return 1;
+		}
+		fputs(resp_buf, stdout);
+		return 0;
+	}
+
 	if (subcmd[0] == '-') return -1;
 
 	/* Check if subcmd matches supported command names */

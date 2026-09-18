@@ -24,6 +24,8 @@
 
 void hooks_signal_period_change(period_t prev_period,
 				period_t period);
+void hooks_signal_status_change(const char *event_name,
+				const char *status_name);
 
 
 #endif /* ! REDSHIFT_HOOKS_H */

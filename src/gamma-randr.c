@@ -59,6 +59,8 @@ typedef struct {
 	int *crtc_num;
 	int crtc_count;
 	randr_crtc_state_t *crtcs;
+	int event_base;
+	Window root;
 } randr_state_t;
 
 
@@ -171,6 +173,96 @@ randr_start(randr_state_t *state)
 		XRRFreeGamma(g);
 	}
 
+	XRRFreeScreenResources(res);
+
+	state->root = root;
+	int event_base = 0, error_base = 0;
+	if (XRRQueryExtension(state->dpy, &event_base, &error_base)) {
+		state->event_base = event_base;
+		XRRSelectInput(state->dpy, root,
+			       RRScreenChangeNotifyMask |
+			       RRCrtcChangeNotifyMask |
+			       RROutputChangeNotifyMask);
+	}
+
+	return 0;
+}
+
+static int
+randr_refresh_crtcs(randr_state_t *state)
+{
+	if (state == NULL || state->dpy == NULL) return -1;
+
+	XRRScreenResources *res = XRRGetScreenResourcesCurrent(state->dpy, state->root);
+	if (res == NULL) return -1;
+
+	randr_crtc_state_t *new_crtcs = calloc(res->ncrtc, sizeof(randr_crtc_state_t));
+	if (new_crtcs == NULL) {
+		XRRFreeScreenResources(res);
+		return -1;
+	}
+
+	for (int i = 0; i < res->ncrtc; i++) {
+		RRCrtc crtc = res->crtcs[i];
+		new_crtcs[i].crtc = crtc;
+		new_crtcs[i].ramp_size = 0;
+		new_crtcs[i].saved_r = NULL;
+		new_crtcs[i].saved_g = NULL;
+		new_crtcs[i].saved_b = NULL;
+
+		XRRCrtcInfo *ci = XRRGetCrtcInfo(state->dpy, res, crtc);
+		if (ci == NULL) continue;
+		int is_active = (ci->mode != None && ci->noutput > 0);
+		XRRFreeCrtcInfo(ci);
+		if (!is_active) continue;
+
+		int size = XRRGetCrtcGammaSize(state->dpy, crtc);
+		if (size <= 0) continue;
+
+		int found = 0;
+		for (int j = 0; j < state->crtc_count; j++) {
+			if (state->crtcs && state->crtcs[j].crtc == crtc &&
+			    state->crtcs[j].saved_r != NULL && state->crtcs[j].ramp_size == size) {
+				new_crtcs[i].ramp_size = size;
+				new_crtcs[i].saved_r = state->crtcs[j].saved_r;
+				new_crtcs[i].saved_g = state->crtcs[j].saved_g;
+				new_crtcs[i].saved_b = state->crtcs[j].saved_b;
+				state->crtcs[j].saved_r = NULL;
+				state->crtcs[j].saved_g = NULL;
+				state->crtcs[j].saved_b = NULL;
+				found = 1;
+				break;
+			}
+		}
+
+		if (!found) {
+			XRRCrtcGamma *g = XRRGetCrtcGamma(state->dpy, crtc);
+			if (g != NULL) {
+				new_crtcs[i].ramp_size = size;
+				new_crtcs[i].saved_r = malloc(size * sizeof(uint16_t));
+				new_crtcs[i].saved_g = malloc(size * sizeof(uint16_t));
+				new_crtcs[i].saved_b = malloc(size * sizeof(uint16_t));
+				if (new_crtcs[i].saved_r && new_crtcs[i].saved_g && new_crtcs[i].saved_b) {
+					memcpy(new_crtcs[i].saved_r, g->red, size * sizeof(uint16_t));
+					memcpy(new_crtcs[i].saved_g, g->green, size * sizeof(uint16_t));
+					memcpy(new_crtcs[i].saved_b, g->blue, size * sizeof(uint16_t));
+				}
+				XRRFreeGamma(g);
+			}
+		}
+	}
+
+	if (state->crtcs != NULL) {
+		for (int j = 0; j < state->crtc_count; j++) {
+			free(state->crtcs[j].saved_r);
+			free(state->crtcs[j].saved_g);
+			free(state->crtcs[j].saved_b);
+		}
+		free(state->crtcs);
+	}
+
+	state->crtcs = new_crtcs;
+	state->crtc_count = res->ncrtc;
 	XRRFreeScreenResources(res);
 	return 0;
 }
@@ -364,6 +456,39 @@ randr_set_temperature(
 	return 0;
 }
 
+static int
+randr_get_fd(randr_state_t *state)
+{
+	return (state && state->dpy) ? ConnectionNumber(state->dpy) : -1;
+}
+
+static int
+randr_handle(randr_state_t *state)
+{
+	if (state == NULL || state->dpy == NULL) return 0;
+
+	int reconfigured = 0;
+	while (XPending(state->dpy) > 0) {
+		XEvent ev;
+		XNextEvent(state->dpy, &ev);
+		if (state->event_base > 0) {
+			if (ev.type == state->event_base + RRScreenChangeNotify) {
+				XRRUpdateConfiguration(&ev);
+				reconfigured = 1;
+			} else if (ev.type == state->event_base + RRNotify) {
+				reconfigured = 1;
+			}
+		}
+	}
+
+	if (reconfigured) {
+		randr_refresh_crtcs(state);
+		return 1;
+	}
+
+	return 0;
+}
+
 const gamma_method_t randr_gamma_method = {
 	"randr", 1,
 	(gamma_method_init_func *)randr_init,
@@ -372,5 +497,7 @@ const gamma_method_t randr_gamma_method = {
 	(gamma_method_print_help_func *)randr_print_help,
 	(gamma_method_set_option_func *)randr_set_option,
 	(gamma_method_restore_func *)randr_restore,
-	(gamma_method_set_temperature_func *)randr_set_temperature
+	(gamma_method_set_temperature_func *)randr_set_temperature,
+	(gamma_method_get_fd_func *)randr_get_fd,
+	(gamma_method_handle_func *)randr_handle
 };

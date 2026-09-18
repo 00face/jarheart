@@ -165,14 +165,84 @@ sudo ninja -C build install
 
 ---
 
-## Compatibility with Desktop Compositors (Compiz, etc.)
+---
 
-Jarheart interacts directly with the display server hardware CRTC via XRandR (`XRRSetCrtcGamma`) and flushes hardware state downstream of desktop composite managers.
+## Window Manager & Compositor Integration
 
-- **Compiz**: Fully tested and supported. Works seamlessly with Compiz OpenGL redirection, fullscreen window unredirection, and multi-monitor setups.
-- **XFCE (xfwm4)**: Supported out of the box.
-- **Picom / Compton**: Supported.
-- **Wayland (wlroots)**: Supported via native `wlr-gamma-control-unstable-v1` protocol.
+Jarheart is engineered from the ground up to integrate seamlessly into modern window managers, status bars, and desktop compositors:
+
+### 1. Waybar (Sway, Hyprland, River)
+
+Jarheart provides built-in JSON output tailored specifically for Waybar custom modules:
+
+```jsonc
+// In ~/.config/waybar/config.jsonc
+"custom/jarheart": {
+    "format": " {text}",
+    "tooltip": true,
+    "interval": 5,
+    "return-type": "json",
+    "exec": "jarheart status --json",
+    "on-click": "jarheart toggle",
+    "on-click-right": "jarheart pause 1h",
+    "on-click-middle": "jarheart resume"
+}
+```
+
+### 2. Polybar (i3, bspwm, awesomewm, xmonad)
+
+```ini
+; In ~/.config/polybar/config.ini
+[module/jarheart]
+type = custom/script
+exec = jarheart status --json | grep -Po '"text": "\K[^"]*'
+interval = 5
+format-prefix = " "
+click-left = jarheart toggle
+click-right = jarheart pause 1h
+click-middle = jarheart resume
+```
+
+### 3. XFCE Panel (Generic Monitor Plugin)
+
+Using the XFCE panel Generic Monitor (`genmon`) plugin, run:
+
+```bash
+jarheart status --xfce
+# Outputs: <txt>6500K</txt><tool>Jarheart: Enabled (Daytime, 6500K)</tool>
+```
+
+### 4. Keybindings (i3, Sway, Hyprland)
+
+**i3 / Sway (`~/.config/i3/config` or `~/.config/sway/config`):**
+```bash
+bindsym $mod+Shift+n exec --no-startup-id jarheart toggle
+bindsym $mod+Shift+p exec --no-startup-id jarheart pause 1h
+bindsym $mod+Shift+r exec --no-startup-id jarheart resume
+```
+
+**Hyprland (`~/.config/hypr/hyprland.conf`):**
+```bash
+bind = $mainMod SHIFT, N, exec, jarheart toggle
+bind = $mainMod SHIFT, P, exec, jarheart pause 1h
+bind = $mainMod SHIFT, R, exec, jarheart resume
+```
+
+### 5. Compiz, Picom, & X11 Compositors
+
+In composite window managers like **Compiz**, **Picom/Compton**, and **xfwm4**, windows are redirected into offscreen pixmaps and composited via OpenGL into the frame buffer.
+
+- **Direct Hardware CRTC Control**: Jarheart uses `libXrandr` to program the hardware RAMDAC lookup tables directly in the GPU display engine (`XRRSetCrtcGamma`), completely downstream of Compiz's OpenGL compositing pipeline.
+- **Dynamic Hotplugging**: Listens to XRandR events (`RRScreenChangeNotify`, `RRCrtcChangeNotify`). When monitors are plugged in, rotated, or woken from DPMS sleep, the new display geometry is instantly detected and color-adjusted.
+- **Fullscreen Unredirection**: Safe with Compiz's `unredirect_fullscreen_windows` feature. Gamma adjustments remain persistent whether windows are composited or unredirected.
+
+### 6. Event Hooks (`~/.config/jarheart/hooks/`)
+
+Executable scripts placed in `~/.config/jarheart/hooks/` (or `~/.config/redshift/hooks/`) are triggered automatically on events:
+- `period-changed <prev-period> <new-period>`: When sun elevation crosses civil twilight.
+- `status-changed <status>`: When adjustments are toggled on, off, or paused.
+
+See [`data/examples/hooks/notify.sh`](data/examples/hooks/notify.sh) for an example desktop notification hook script.
 
 ---
 

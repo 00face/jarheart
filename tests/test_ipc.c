@@ -70,6 +70,21 @@ test_command_dispatch(void)
 	assert(strstr(resp, "Color temperature: 6500K") != NULL);
 	assert(strstr(resp, "Method: randr") != NULL);
 
+	/* Test 'status --json' */
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"status\": \"Enabled\"") != NULL);
+	assert(strstr(resp, "\"period\": \"Daytime\"") != NULL);
+	assert(strstr(resp, "\"temperature\": 6500") != NULL);
+	assert(strstr(resp, "\"method\": \"randr\"") != NULL);
+	assert(strstr(resp, "\"text\": \"6500K\"") != NULL);
+
+	/* Test 'status --xfce' */
+	r = ipc_dispatch_command("status --xfce", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "<txt>6500K</txt>") != NULL);
+	assert(strstr(resp, "<tool>Jarheart: Enabled") != NULL);
+
 	/* Test 'toggle' */
 	r = ipc_dispatch_command("toggle", &state, resp, sizeof(resp));
 	assert(r == 0);

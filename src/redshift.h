@@ -90,6 +90,8 @@ typedef int gamma_method_set_option_func(gamma_state_t *state, const char *key,
 typedef void gamma_method_restore_func(gamma_state_t *state);
 typedef int gamma_method_set_temperature_func(
 	gamma_state_t *state, const color_setting_t *setting, int preserve);
+typedef int gamma_method_get_fd_func(gamma_state_t *state);
+typedef int gamma_method_handle_func(gamma_state_t *state);
 
 typedef struct {
 	char *name;
@@ -113,6 +115,11 @@ typedef struct {
 	gamma_method_restore_func *restore;
 	/* Set a specific color temperature. */
 	gamma_method_set_temperature_func *set_temperature;
+
+	/* Optional: descriptor to poll for display server / compositor events */
+	gamma_method_get_fd_func *get_fd;
+	/* Optional: handle events on get_fd descriptor. Returns > 0 if display reconfigured. */
+	gamma_method_handle_func *handle;
 } gamma_method_t;
 
 

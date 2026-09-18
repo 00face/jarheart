@@ -90,11 +90,15 @@ class SettingsDialog(Gtk.Window):
         header.set_subtitle(_("Display Temperature & Circadian Ergonomics"))
         self.set_titlebar(header)
 
-        # Save Defaults button in header
-        save_btn = Gtk.Button(label=_("Save Defaults"))
+        # Action buttons in header
+        save_btn = Gtk.Button(label=_("Save"))
         save_btn.get_style_context().add_class('suggested-action')
-        save_btn.connect('clicked', self.on_save_defaults_clicked)
+        save_btn.connect('clicked', self.on_save_clicked)
         header.pack_start(save_btn)
+
+        restore_btn = Gtk.Button(label=_("Restore Defaults"))
+        restore_btn.connect('clicked', self.on_restore_defaults_clicked)
+        header.pack_start(restore_btn)
 
         # Main Layout
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1330,7 +1334,7 @@ class SettingsDialog(Gtk.Window):
         finally:
             self._updating_monitors = False
 
-    def on_save_defaults_clicked(self, button):
+    def on_save_clicked(self, button):
         """Write current settings to ~/.config/jarheart/jarheart.conf."""
         config_dir = os.path.expanduser('~/.config/jarheart')
         os.makedirs(config_dir, exist_ok=True)
@@ -1402,9 +1406,50 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
                 f.write(content)
             # Show brief visual notification
             button.set_label(_("✓ Saved!"))
-            GLib.timeout_add_seconds(2, lambda: button.set_label(_("Save Defaults")))
+            GLib.timeout_add_seconds(2, lambda: button.set_label(_("Save")))
         except Exception as e:
             print("Error saving config:", e)
+
+    on_save_defaults_clicked = on_save_clicked
+
+    def on_restore_defaults_clicked(self, button):
+        """Restore all sliders, switches, schedules, and monitor controls to factory defaults."""
+        self.day_scale.set_value(6500)
+        self.day_badge.set_text("6500K")
+
+        self.night_scale.set_value(3400)
+        self.night_badge.set_text("3400K")
+
+        self.bright_scale.set_value(100)
+        self.bright_badge.set_text("100%")
+
+        self.couple_switch.set_active(False)
+        self.myopia_switch.set_active(False)
+        self.ambient_switch.set_active(False)
+        self.darkroom_switch.set_active(False)
+        self.movie_switch.set_active(False)
+        self.sunlight_switch.set_active(False)
+        self.reading_switch.set_active(False)
+        self.halation_switch.set_active(False)
+        self.notch_switch.set_active(False)
+        self.pwm_switch.set_active(False)
+        self.strain_switch.set_active(False)
+        self.vignette_switch.set_active(False)
+        self.autobrightness_switch.set_active(False)
+        self.battery_switch.set_active(False)
+        self.pacer_switch.set_active(False)
+
+        self.cvd_combo.set_active_id('none')
+        self.schedule_combo.set_active_id('solar')
+
+        # Reset all attached displays to defaults
+        self.on_reset_all_monitors_clicked(None)
+
+        # Notify daemon to reset live state to solar schedule defaults
+        self.send_ipc('reset')
+
+        button.set_label(_("↺ Restored!"))
+        GLib.timeout_add_seconds(2, lambda: button.set_label(_("Restore Defaults")))
 
     def load_config_defaults(self):
         """Load default slider and switch states from user's config file if present."""

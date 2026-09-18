@@ -96,9 +96,9 @@ class SettingsDialog(Gtk.Window):
         save_btn.connect('clicked', self.on_save_clicked)
         header.pack_start(save_btn)
 
-        restore_btn = Gtk.Button(label=_("Restore Defaults"))
-        restore_btn.connect('clicked', self.on_restore_defaults_clicked)
-        header.pack_start(restore_btn)
+        reset_btn = Gtk.Button(label=_("Reset Defaults"))
+        reset_btn.connect('clicked', self.on_reset_defaults_clicked)
+        header.pack_start(reset_btn)
 
         # Main Layout
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1412,7 +1412,7 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
 
     on_save_defaults_clicked = on_save_clicked
 
-    def on_restore_defaults_clicked(self, button):
+    def on_reset_defaults_clicked(self, button):
         """Restore all sliders, switches, schedules, and monitor controls to factory defaults."""
         self.day_scale.set_value(6500)
         self.day_badge.set_text("6500K")
@@ -1448,8 +1448,10 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         # Notify daemon to reset live state to solar schedule defaults
         self.send_ipc('reset')
 
-        button.set_label(_("↺ Restored!"))
-        GLib.timeout_add_seconds(2, lambda: button.set_label(_("Restore Defaults")))
+        button.set_label(_("↺ Reset!"))
+        GLib.timeout_add_seconds(2, lambda: button.set_label(_("Reset Defaults")))
+
+    on_restore_defaults_clicked = on_reset_defaults_clicked
 
     def load_config_defaults(self):
         """Load default slider and switch states from user's config file if present."""

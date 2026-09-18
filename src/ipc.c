@@ -238,6 +238,13 @@ ipc_dispatch_command(
 			return 0;
 		}
 
+		char movie_str[64];
+		if (state->movie_mode) {
+			snprintf(movie_str, sizeof(movie_str), "Active (%lds remaining)", movie_remaining);
+		} else {
+			snprintf(movie_str, sizeof(movie_str), "Inactive");
+		}
+
 		snprintf(response_buf, response_buf_size,
 			 "Status: %s\n"
 			 "Period: %s\n"
@@ -249,7 +256,7 @@ ipc_dispatch_command(
 			 "Method: %s\n"
 			 "Pause remaining: %lds\n"
 			 "Darkroom: %s\n"
-			 "Movie mode: %s%s%ld%s\n"
+			 "Movie mode: %s\n"
 			 "Preset: %s\n"
 			 "Schedule: %s\n"
 			 "Override temp: %d\n",
@@ -265,10 +272,7 @@ ipc_dispatch_command(
 			 state->method_name ? state->method_name : "none",
 			 remaining,
 			 state->darkroom ? "Active (monochrome red)" : "Inactive",
-			 state->movie_mode ? "Active" : "Inactive",
-			 state->movie_mode ? " (" : "",
-			 movie_remaining,
-			 state->movie_mode ? "s remaining)" : "",
+			 movie_str,
 			 state->current_preset[0] ? state->current_preset : "None",
 			 state->schedule_use_time ? "Time schedule" : "Solar elevation",
 			 state->override_temp);

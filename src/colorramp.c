@@ -290,6 +290,7 @@ static const kelvin_preset_t kelvin_presets[] = {
 	{ "mars", "Mars", 2100 },
 	{ "warm-incandescent", "Warm Incandescent", 2300 },
 	{ "incandescent", "Incandescent", 2700 },
+	{ "myopia-protect", "Myopia Protect", 2850 },
 	{ "jupiter", "Jupiter", 3200 },
 	{ "halogen", "Halogen", 3400 },
 	{ "saturn", "Saturn", 3800 },
@@ -339,8 +340,9 @@ colorramp_find_preset(const char *name)
 
 	/* Short aliases */
 	if (strcmp(norm, "warm") == 0) return &kelvin_presets[3]; /* warm-incandescent */
-	if (strcmp(norm, "sun") == 0) return &kelvin_presets[11]; /* sunlight */
-	if (strcmp(norm, "day") == 0) return &kelvin_presets[13]; /* daylight */
+	if (strcmp(norm, "myopia") == 0 || strcmp(norm, "reading") == 0) return &kelvin_presets[5]; /* myopia-protect */
+	if (strcmp(norm, "sun") == 0) return &kelvin_presets[12]; /* sunlight */
+	if (strcmp(norm, "day") == 0) return &kelvin_presets[14]; /* daylight */
 
 	return NULL;
 }

@@ -155,6 +155,8 @@ ipc_dispatch_command(
 			status_str = "Darkroom";
 		} else if (state->movie_mode) {
 			status_str = "Movie Mode";
+		} else if (state->myopia_protect) {
+			status_str = "Myopia Protect";
 		} else if (state->current_preset[0] != '\0') {
 			status_str = state->current_preset;
 		} else if (state->override_temp > 0) {
@@ -197,6 +199,9 @@ ipc_dispatch_command(
 				 "  \"darkroom\": %s,\n"
 				 "  \"movie_mode\": %s,\n"
 				 "  \"movie_remaining\": %ld,\n"
+				 "  \"myopia_protect\": %s,\n"
+				 "  \"couple_brightness\": %s,\n"
+				 "  \"pacer_interval\": %d,\n"
 				 "  \"preset\": \"%s\",\n"
 				 "  \"schedule\": \"%s\",\n"
 				 "  \"override_temp\": %d,\n"
@@ -220,6 +225,9 @@ ipc_dispatch_command(
 				 state->darkroom ? "true" : "false",
 				 state->movie_mode ? "true" : "false",
 				 movie_remaining,
+				 state->myopia_protect ? "true" : "false",
+				 state->couple_brightness ? "true" : "false",
+				 state->pacer_interval,
 				 state->current_preset[0] ? state->current_preset : "none",
 				 state->schedule_use_time ? "time" : "solar",
 				 state->override_temp,
@@ -245,6 +253,13 @@ ipc_dispatch_command(
 			snprintf(movie_str, sizeof(movie_str), "Inactive");
 		}
 
+		char pacer_str[64];
+		if (state->pacer_interval > 0) {
+			snprintf(pacer_str, sizeof(pacer_str), "Active (%dm)", state->pacer_interval / 60);
+		} else {
+			snprintf(pacer_str, sizeof(pacer_str), "Inactive");
+		}
+
 		snprintf(response_buf, response_buf_size,
 			 "Status: %s\n"
 			 "Period: %s\n"
@@ -257,6 +272,9 @@ ipc_dispatch_command(
 			 "Pause remaining: %lds\n"
 			 "Darkroom: %s\n"
 			 "Movie mode: %s\n"
+			 "Myopia protect: %s\n"
+			 "Coupled brightness: %s\n"
+			 "Pacer: %s\n"
 			 "Preset: %s\n"
 			 "Schedule: %s\n"
 			 "Override temp: %d\n",
@@ -273,6 +291,9 @@ ipc_dispatch_command(
 			 remaining,
 			 state->darkroom ? "Active (monochrome red)" : "Inactive",
 			 movie_str,
+			 state->myopia_protect ? "Active (2850K, 60% lum)" : "Inactive",
+			 state->couple_brightness ? "Enabled" : "Disabled",
+			 pacer_str,
 			 state->current_preset[0] ? state->current_preset : "None",
 			 state->schedule_use_time ? "Time schedule" : "Solar elevation",
 			 state->override_temp);
@@ -373,6 +394,88 @@ ipc_dispatch_command(
 			 state->movie_mode ? " (" : "",
 			 state->movie_mode ? (long)(state->movie_mode_until - now) : 0,
 			 state->movie_mode ? " remaining, 4200K cinema tone preserving sky and shadow detail)" : "");
+		return 0;
+	} else if (strcasecmp(cmd, "myopia-protect") == 0 || strcasecmp(cmd, "myopia") == 0) {
+		if (strcasecmp(arg, "off") == 0) {
+			state->myopia_protect = 0;
+			state->override_temp = 0;
+			state->current_preset[0] = '\0';
+		} else if (strcasecmp(arg, "on") == 0) {
+			state->myopia_protect = 1;
+			state->darkroom = 0;
+			state->movie_mode = 0;
+			state->disabled = 0;
+			state->pause_until = 0;
+			state->override_temp = 2850;
+			snprintf(state->current_preset, sizeof(state->current_preset), "Myopia Protect");
+		} else {
+			state->myopia_protect = !state->myopia_protect;
+			if (state->myopia_protect) {
+				state->darkroom = 0;
+				state->movie_mode = 0;
+				state->disabled = 0;
+				state->pause_until = 0;
+				state->override_temp = 2850;
+				snprintf(state->current_preset, sizeof(state->current_preset), "Myopia Protect");
+			} else {
+				state->override_temp = 0;
+				state->current_preset[0] = '\0';
+			}
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Myopia protection mode: %s (2850K long-wavelength spectrum, 60%% luminance limit)\n",
+			 state->myopia_protect ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "couple-brightness") == 0 || strcasecmp(cmd, "couple") == 0) {
+		if (strcasecmp(arg, "off") == 0) {
+			state->couple_brightness = 0;
+		} else if (strcasecmp(arg, "on") == 0) {
+			state->couple_brightness = 1;
+		} else {
+			state->couple_brightness = !state->couple_brightness;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Coupled brightness: %s (Kruithof ergonomics: scales luminance with CCT)\n",
+			 state->couple_brightness ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "pacer") == 0) {
+		if (strcasecmp(arg, "off") == 0) {
+			state->pacer_interval = 0;
+		} else if (strcasecmp(arg, "breathe") == 0) {
+			state->pacer_breathe = 1;
+			if (state->pacer_interval <= 0) state->pacer_interval = 1200;
+		} else if (strcasecmp(arg, "notify") == 0) {
+			state->pacer_breathe = 0;
+			if (state->pacer_interval <= 0) state->pacer_interval = 1200;
+		} else if (*arg != '\0') {
+			int dur = ipc_parse_duration(arg);
+			if (dur > 0) {
+				state->pacer_interval = dur;
+				state->last_pacer_time = now;
+			} else {
+				snprintf(response_buf, response_buf_size,
+					 "Error: Invalid pacer duration '%s'. Examples: 20m, 30m, breathe, notify, off\n", arg);
+				return 0;
+			}
+		} else {
+			if (state->pacer_interval > 0) {
+				state->pacer_interval = 0;
+			} else {
+				state->pacer_interval = 1200;
+				state->last_pacer_time = now;
+			}
+		}
+		state->state_changed = 1;
+		if (state->pacer_interval > 0) {
+			snprintf(response_buf, response_buf_size,
+				 "20-20-20 Ocular Pacer: Enabled (every %dm, mode: breathe/notify)\n",
+				 state->pacer_interval / 60);
+		} else {
+			snprintf(response_buf, response_buf_size,
+				 "20-20-20 Ocular Pacer: Disabled\n");
+		}
 		return 0;
 	} else if (strcasecmp(cmd, "preset") == 0) {
 		if (*arg == '\0') {
@@ -788,6 +891,8 @@ ipc_client_dispatch(int argc, char *argv[])
 		"on", "off", "enable", "disable", "set", "reset",
 		"darkroom", "movie", "preset", "presets", "schedule",
 		"check", "weather",
+		"myopia-protect", "myopia", "reading",
+		"couple-brightness", "couple", "pacer",
 		"quit", "exit", "stop", "help", NULL
 	};
 

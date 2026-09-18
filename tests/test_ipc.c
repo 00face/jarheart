@@ -175,6 +175,40 @@ test_command_dispatch(void)
 	assert(state.schedule_use_time == 0);
 	assert(strstr(resp, "Solar elevation") != NULL);
 
+	/* Test 'myopia-protect' */
+	r = ipc_dispatch_command("myopia-protect on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.myopia_protect == 1);
+	assert(state.override_temp == 2850);
+	assert(strstr(resp, "Myopia protection mode: Enabled") != NULL);
+
+	r = ipc_dispatch_command("myopia-protect off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.myopia_protect == 0);
+	assert(strstr(resp, "Myopia protection mode: Disabled") != NULL);
+
+	/* Test 'couple-brightness' */
+	r = ipc_dispatch_command("couple-brightness on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.couple_brightness == 1);
+	assert(strstr(resp, "Coupled brightness: Enabled") != NULL);
+
+	r = ipc_dispatch_command("couple-brightness off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.couple_brightness == 0);
+	assert(strstr(resp, "Coupled brightness: Disabled") != NULL);
+
+	/* Test 'pacer' */
+	r = ipc_dispatch_command("pacer 20m", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.pacer_interval == 1200);
+	assert(strstr(resp, "20-20-20 Ocular Pacer: Enabled") != NULL);
+
+	r = ipc_dispatch_command("pacer off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.pacer_interval == 0);
+	assert(strstr(resp, "20-20-20 Ocular Pacer: Disabled") != NULL);
+
 	/* Test 'reset' clears presets and modes */
 	state.darkroom = 1;
 	state.movie_mode = 1;

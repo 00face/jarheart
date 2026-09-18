@@ -743,6 +743,19 @@ run_continual_mode(const location_provider_t *provider,
 				loc = tz_chk.timezone_location;
 			}
 		}
+
+		/* 20-20-20 Ocular Relaxation Pacer */
+		if (ipc_state.pacer_interval > 0 && !disabled) {
+			if (ipc_state.last_pacer_time == 0) {
+				ipc_state.last_pacer_time = now_epoch;
+			} else if (now_epoch - ipc_state.last_pacer_time >= ipc_state.pacer_interval) {
+				ipc_state.last_pacer_time = now_epoch;
+				/* Dispatch non-intrusive desktop notification if available */
+				if (system("which notify-send > /dev/null 2>&1") == 0) {
+					system("notify-send -a Jarheart -i jarheart '20-20-20 Ocular Rest' 'Look 20 feet away for 20 seconds to relax ciliary muscles and replenish tear film.' &");
+				}
+			}
+		}
 #endif
 
 		/* Check to see if disable signal was caught */
@@ -832,11 +845,29 @@ run_continual_mode(const location_provider_t *provider,
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 1;
 			target_interp.temperature = 4200;
+		} else if (ipc_state.myopia_protect) {
+			target_interp.darkroom = 0;
+			target_interp.movie_mode = 0;
+			target_interp.temperature = 2850;
+			if (target_interp.brightness > 0.60f) {
+				target_interp.brightness = 0.60f;
+			}
 		} else {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 0;
 			if (ipc_state.override_temp > 0) {
 				target_interp.temperature = ipc_state.override_temp;
+			}
+		}
+
+		/* Coupled brightness: dynamically scale brightness along Kruithof comfort curve */
+		if (ipc_state.couple_brightness && !disabled && !ipc_state.darkroom) {
+			float t_norm = (float)(target_interp.temperature - 2000) / (float)(6500 - 2000);
+			if (t_norm < 0.0f) t_norm = 0.0f;
+			if (t_norm > 1.0f) t_norm = 1.0f;
+			float coupled_b = 0.55f + 0.45f * t_norm;
+			if (target_interp.brightness > coupled_b) {
+				target_interp.brightness = coupled_b;
 			}
 		}
 #endif

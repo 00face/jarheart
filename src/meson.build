@@ -115,6 +115,7 @@ if get_option('gui')
     'redshift-gtk/__init__.py',
     'redshift-gtk/controller.py',
     'redshift-gtk/statusicon.py',
+    'redshift-gtk/settings_dialog.py',
     'redshift-gtk/utils.py',
     install_dir: python_dir,
   )

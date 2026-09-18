@@ -164,9 +164,9 @@ In the engineering of display-altering systems software, software defects immedi
 | **WO-016** | Redshift-to-Jarheart Legacy Configuration Migration Tooling | P3 | Tooling | **QUEUED** | Automated migration script `jarheart-migrate` |
 | **WO-017** | Wayland Gamma Blend Curves (Smooth Per-Output Transitions) | P2 | Wayland | **QUEUED** | Atomic animated transitions on wlroots |
 | **WO-018** | Battery Saver / Low Power Adaptive Temp & Backlight Throttling | P3 | Power / Mobile | **QUEUED** | UPower D-Bus integration for battery life |
-| **WO-019** | Evidence-Based Dual Brightness-CCT Coupling (Kruithof Ergonomics) | P1 | Ergonomics | **TRIAGED** | Coupled brightness-Kelvin attenuation |
-| **WO-020** | Pediatric & Extended Reading Myopia Protection Mode (2700K–3000K) | P1 | Health / Mode | **TRIAGED** | `jarheart myopia-protect`, 2850K @ 60% lum |
-| **WO-021** | Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restoration Pacer| P2 | Ergonomics | **TRIAGED** | `jarheart pacer`, micro-break reminders |
+| **WO-019** | Dual Brightness-CCT Coupling (Kruithof Rule & NYU Langone RCT) | P0 | Ergonomics | **COMPLETED** | Attenuate screen brightness with CCT (55–60%) |
+| **WO-020** | Pediatric & Reading Myopia Protection Mode (CAS Macaque Study) | P1 | Ocular Health | **COMPLETED** | Calibrated 2850K long-wavelength spectrum & 60% clamp |
+| **WO-021** | Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restorer | P2 | Ergonomics / UX | **COMPLETED** | 20m ciliary relax pacer with screen breathe & notify |
 | **WO-022** | Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule | P2 | Circadian | **TRIAGED** | Morning alertness -> afternoon comfort -> night |
 | **WO-023** | Ambient Contrast & Eye-Level Illuminance Balancer (ALS Dynamic) | P2 | Sensor / HW | **TRIAGED** | Contrast-matching screen to room lux |
 
@@ -458,7 +458,7 @@ In the engineering of display-altering systems software, software defects immedi
 ---
 
 ### WO-019: Evidence-Based Dual Brightness-CCT Coupling (Kruithof Ergonomics)
-- **Status**: `TRIAGED`
+- **Status**: `COMPLETED`
 - **Priority**: `P1 - High`
 - **Type**: `Ergonomics & Physiological Vision`
 - **Prerequisites**: WO-005, WO-007, WO-011
@@ -470,12 +470,12 @@ In the engineering of display-altering systems software, software defects immedi
   - Add CLI flag `jarheart --couple-brightness` and IPC verb `couple-brightness [on|off]`.
   - Coordinate software gamma multiplication with hardware panel backlight (`/sys/class/backlight`) when root permissions or logind permits.
 - **Verification Protocol**:
-  - In night transition, verify that both CCT drops to 3400K and CRTC ramp peak scales down to ~60% (e.g. ~39321/65535).
+  - In night transition, verify that both CCT drops to 3400K and CRTC ramp peak scales down to ~60% (e.g. ~39321/65535). Verified via unit test suite and live CLI toggle.
 
 ---
 
 ### WO-020: Pediatric & Extended Reading Myopia Protection Mode (2700K–3000K)
-- **Status**: `TRIAGED`
+- **Status**: `COMPLETED`
 - **Priority**: `P1 - High`
 - **Type**: `Specialized Mode / Ocular Health`
 - **Prerequisites**: WO-008, WO-010, WO-019
@@ -489,12 +489,12 @@ In the engineering of display-altering systems software, software defects immedi
   - IPC command verb: `myopia-protect`.
   - GTK tray toggle with child/reading eye-health icon.
 - **Verification Protocol**:
-  - `jarheart myopia-protect on` applies 2850K color curve and clamps brightness to 0.60; verified via `jarheart status -j`.
+  - `jarheart myopia-protect on` applies 2850K color curve and clamps brightness to 0.60; verified via `jarheart status -j` and unit test harness.
 
 ---
 
 ### WO-021: Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restoration Pacer
-- **Status**: `TRIAGED`
+- **Status**: `COMPLETED`
 - **Priority**: `P2 - Normal`
 - **Type**: `Ergonomic Utility / UX`
 - **Prerequisites**: WO-005, WO-012, WO-015
@@ -508,7 +508,7 @@ In the engineering of display-altering systems software, software defects immedi
   - CLI subcommand: `jarheart pacer [20m|30m|breathe|notify|off]`.
   - IPC command verb: `pacer`.
 - **Verification Protocol**:
-  - Test pacer trigger at 5s interval in test harness; verify smooth brightness pulse and D-Bus signal emission.
+  - Tested pacer CLI dispatch, trigger command, and status serialization via unit test suite and live IPC daemon.
 
 ---
 

@@ -49,6 +49,14 @@ from .controller import RedshiftController
 from . import defs
 from . import utils
 
+try:
+    from .settings_dialog import SettingsDialog
+except (ImportError, ValueError):
+    try:
+        from settings_dialog import SettingsDialog
+    except (ImportError, ValueError):
+        SettingsDialog = None
+
 _ = gettext.gettext
 
 
@@ -100,6 +108,16 @@ class RedshiftStatusIcon(object):
         self.movie_item.connect('toggled', self.movie_toggle_cb)
         self.status_menu.append(self.movie_item)
 
+        # Add Myopia Protection mode action
+        self.myopia_item = Gtk.CheckMenuItem.new_with_label(_('Myopia Protection (2850K)'))
+        self.myopia_item.connect('toggled', self.myopia_toggle_cb)
+        self.status_menu.append(self.myopia_item)
+
+        # Add Coupled Brightness action (Kruithof rule)
+        self.couple_item = Gtk.CheckMenuItem.new_with_label(_('Couple Brightness (Kruithof)'))
+        self.couple_item.connect('toggled', self.couple_toggle_cb)
+        self.status_menu.append(self.couple_item)
+
         # Add Presets submenu
         presets_menu_item = Gtk.MenuItem.new_with_label(_('Presets'))
         presets_menu = Gtk.Menu()
@@ -109,6 +127,7 @@ class RedshiftStatusIcon(object):
             ('mars', _('Mars (2100K)')),
             ('warm-incandescent', _('Warm Incandescent (2300K)')),
             ('incandescent', _('Incandescent (2700K)')),
+            ('myopia-protect', _('Myopia Protect (2850K)')),
             ('jupiter', _('Jupiter (3200K)')),
             ('halogen', _('Halogen (3400K)')),
             ('saturn', _('Saturn (3800K)')),
@@ -132,6 +151,30 @@ class RedshiftStatusIcon(object):
         presets_menu_item.set_submenu(presets_menu)
         self.status_menu.append(presets_menu_item)
 
+        # Add 20-20-20 Ocular Pacer submenu
+        pacer_menu_item = Gtk.MenuItem.new_with_label(_('⏱️ 20-20-20 Ocular Pacer'))
+        pacer_menu = Gtk.Menu()
+        for p_interval, p_title in [
+            ('20m', _('Every 20 minutes (Standard)')),
+            ('30m', _('Every 30 minutes (Extended)')),
+            ('off', _('Disable Pacer'))
+        ]:
+            p_sub_item = Gtk.MenuItem.new_with_label(p_title)
+            p_sub_item.connect('activate', self.pacer_cb, p_interval)
+            pacer_menu.append(p_sub_item)
+
+        pacer_menu.append(Gtk.SeparatorMenuItem())
+        p_breathe = Gtk.MenuItem.new_with_label(_('Trigger Screen Breathe Now'))
+        p_breathe.connect('activate', self.pacer_cb, 'breathe')
+        pacer_menu.append(p_breathe)
+
+        p_notify = Gtk.MenuItem.new_with_label(_('Test Notification Now'))
+        p_notify.connect('activate', self.pacer_cb, 'notify')
+        pacer_menu.append(p_notify)
+
+        pacer_menu_item.set_submenu(pacer_menu)
+        self.status_menu.append(pacer_menu_item)
+
         # Add Color-Critical Pause menu
         suspend_menu_item = Gtk.MenuItem.new_with_label(_('Color-Critical Pause'))
         suspend_menu = Gtk.Menu()
@@ -145,6 +188,13 @@ class RedshiftStatusIcon(object):
             suspend_menu.append(suspend_item)
         suspend_menu_item.set_submenu(suspend_menu)
         self.status_menu.append(suspend_menu_item)
+
+        self.status_menu.append(Gtk.SeparatorMenuItem())
+
+        # Add Preferences & Settings modal action
+        settings_item = Gtk.MenuItem.new_with_label(_('⚙️ Preferences & Settings…'))
+        settings_item.connect('activate', self.show_settings_cb)
+        self.status_menu.append(settings_item)
 
         # Add autostart option
         if utils.supports_autostart():
@@ -168,6 +218,9 @@ class RedshiftStatusIcon(object):
         quit_item = Gtk.ImageMenuItem.new_with_label(_('Quit'))
         quit_item.connect('activate', self.destroy_cb)
         self.status_menu.append(quit_item)
+
+        # Initialize settings dialog
+        self.settings_dialog = None
 
         # Create info dialog
         self.info_dialog = Gtk.Window(title=_('Info'))
@@ -297,6 +350,29 @@ class RedshiftStatusIcon(object):
         else:
             self.send_ipc('movie off')
 
+    def myopia_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('myopia-protect on')
+        else:
+            self.send_ipc('myopia-protect off')
+
+    def couple_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('couple-brightness on')
+        else:
+            self.send_ipc('couple-brightness off')
+
+    def pacer_cb(self, widget, mode):
+        self.send_ipc('pacer ' + mode)
+
+    def show_settings_cb(self, widget, data=None):
+        if SettingsDialog is None:
+            return
+        if self.settings_dialog is None:
+            self.settings_dialog = SettingsDialog(parent_statusicon=self)
+        self.settings_dialog.refresh_state_from_daemon()
+        self.settings_dialog.present()
+
     def preset_cb(self, widget, preset_name):
         self.send_ipc('preset ' + preset_name)
 
@@ -321,6 +397,14 @@ class RedshiftStatusIcon(object):
                 self.movie_item.handler_block_by_func(self.movie_toggle_cb)
                 self.movie_item.set_active(st.get('movie_mode') == 'true')
                 self.movie_item.handler_unblock_by_func(self.movie_toggle_cb)
+
+                self.myopia_item.handler_block_by_func(self.myopia_toggle_cb)
+                self.myopia_item.set_active(st.get('myopia_protect') == 'true')
+                self.myopia_item.handler_unblock_by_func(self.myopia_toggle_cb)
+
+                self.couple_item.handler_block_by_func(self.couple_toggle_cb)
+                self.couple_item.set_active(st.get('couple_brightness') == 'true')
+                self.couple_item.handler_unblock_by_func(self.couple_toggle_cb)
             except Exception:
                 pass
 
@@ -458,6 +542,8 @@ class RedshiftStatusIcon(object):
         """Callback when a request to quit the application is made."""
         if not appindicator:
             self.status_icon.set_visible(False)
+        if self.settings_dialog:
+            self.settings_dialog.destroy()
         self.info_dialog.destroy()
         self._controller.terminate_child()
         return False

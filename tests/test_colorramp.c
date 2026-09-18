@@ -158,6 +158,11 @@ int main(void)
 	const kelvin_preset_t *p_day = colorramp_find_preset("daylight");
 	assert(p_day != NULL && p_day->temperature == 6500);
 
+	const kelvin_preset_t *p_myopia = colorramp_find_preset("myopia-protect");
+	assert(p_myopia != NULL && p_myopia->temperature == 2850);
+	const kelvin_preset_t *p_myopia_alias = colorramp_find_preset("myopia");
+	assert(p_myopia_alias != NULL && p_myopia_alias->temperature == 2850);
+
 	printf("  All Kelvin presets verified!\n");
 
 	printf("test_colorramp PASSED!\n");

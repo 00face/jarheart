@@ -50,6 +50,11 @@ typedef struct {
 	int schedule_use_time;
 	time_range_t dawn;
 	time_range_t dusk;
+	int myopia_protect;
+	int couple_brightness;
+	int pacer_interval;
+	time_t last_pacer_time;
+	int pacer_breathe;
 } daemon_ipc_state_t;
 
 /* Parse human duration string like "30m", "1h", "45s", "1800" into seconds.

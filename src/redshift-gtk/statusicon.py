@@ -24,6 +24,9 @@ appindicator module isn't present it will fall back to a GTK status icon.
 """
 
 import sys
+import os
+import socket
+import json
 import signal
 import gettext
 
@@ -87,8 +90,50 @@ class RedshiftStatusIcon(object):
         self.toggle_item.connect('activate', self.toggle_item_cb)
         self.status_menu.append(self.toggle_item)
 
-        # Add suspend menu
-        suspend_menu_item = Gtk.MenuItem.new_with_label(_('Suspend for'))
+        # Add Darkroom mode action
+        self.darkroom_item = Gtk.CheckMenuItem.new_with_label(_('Darkroom Mode (Ruby Red)'))
+        self.darkroom_item.connect('toggled', self.darkroom_toggle_cb)
+        self.status_menu.append(self.darkroom_item)
+
+        # Add Movie mode action
+        self.movie_item = Gtk.CheckMenuItem.new_with_label(_('Movie Mode (2½ hours)'))
+        self.movie_item.connect('toggled', self.movie_toggle_cb)
+        self.status_menu.append(self.movie_item)
+
+        # Add Presets submenu
+        presets_menu_item = Gtk.MenuItem.new_with_label(_('Presets'))
+        presets_menu = Gtk.Menu()
+        presets_list = [
+            ('ember', _('Ember (1200K)')),
+            ('candle', _('Candle (1900K)')),
+            ('mars', _('Mars (2100K)')),
+            ('warm-incandescent', _('Warm Incandescent (2300K)')),
+            ('incandescent', _('Incandescent (2700K)')),
+            ('jupiter', _('Jupiter (3200K)')),
+            ('halogen', _('Halogen (3400K)')),
+            ('saturn', _('Saturn (3800K)')),
+            ('moon', _('Moon (4100K)')),
+            ('fluorescent', _('Fluorescent (4200K)')),
+            ('venus', _('Venus (4800K)')),
+            ('sunlight', _('Sunlight (5500K)')),
+            ('mercury', _('Mercury (5800K)')),
+            ('daylight', _('Daylight (6500K)')),
+        ]
+        for p_name, p_label in presets_list:
+            p_item = Gtk.MenuItem.new_with_label(p_label)
+            p_item.connect('activate', self.preset_cb, p_name)
+            presets_menu.append(p_item)
+
+        presets_menu.append(Gtk.SeparatorMenuItem())
+        reset_preset_item = Gtk.MenuItem.new_with_label(_('Reset to Solar Schedule'))
+        reset_preset_item.connect('activate', self.reset_preset_cb)
+        presets_menu.append(reset_preset_item)
+
+        presets_menu_item.set_submenu(presets_menu)
+        self.status_menu.append(presets_menu_item)
+
+        # Add Color-Critical Pause menu
+        suspend_menu_item = Gtk.MenuItem.new_with_label(_('Color-Critical Pause'))
         suspend_menu = Gtk.Menu()
         for minutes, label in [(30, _('30 minutes')),
                                (60, _('1 hour')),
@@ -158,6 +203,12 @@ class RedshiftStatusIcon(object):
         content_area.pack_start(self.period_label, True, True, 0)
         self.period_label.show()
 
+        self.checks_label = Gtk.Label()
+        self.checks_label.set_alignment(0.0, 0.5)
+        self.checks_label.set_padding(6, 6)
+        content_area.pack_start(self.checks_label, True, True, 0)
+        self.checks_label.show()
+
         self.close_button = Gtk.Button(label=_('Close'))
         content_area.pack_start(self.close_button, True, True, 0)
         self.close_button.connect('clicked', self.close_info_dialog_cb)
@@ -217,12 +268,62 @@ class RedshiftStatusIcon(object):
         self.suspend_timer = GLib.timeout_add_seconds(
             minutes * 60, self.reenable_cb)
 
+    def send_ipc(self, cmd):
+        sock_path = os.environ.get('XDG_RUNTIME_DIR')
+        if sock_path:
+            path = os.path.join(sock_path, 'jarheart.sock')
+        else:
+            path = '/tmp/jarheart-{}.sock'.format(os.getuid())
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(1.5)
+            s.connect(path)
+            s.sendall((cmd + '\n').encode('utf-8'))
+            resp = s.recv(4096).decode('utf-8', errors='replace')
+            s.close()
+            return resp
+        except Exception:
+            return None
+
+    def darkroom_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('darkroom on')
+        else:
+            self.send_ipc('darkroom off')
+
+    def movie_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('movie on')
+        else:
+            self.send_ipc('movie off')
+
+    def preset_cb(self, widget, preset_name):
+        self.send_ipc('preset ' + preset_name)
+
+    def reset_preset_cb(self, widget):
+        self.send_ipc('reset')
+
     def reenable_cb(self):
         """Callback to reenable redshift when a suspend timer expires."""
         self._controller.set_inhibit(False)
 
     def popup_menu_cb(self, widget, button, time, data=None):
         """Callback when the popup menu on the status icon has to open."""
+        # Synchronize check item states with daemon
+        raw = self.send_ipc('status -j')
+        if raw:
+            try:
+                st = json.loads(raw)
+                self.darkroom_item.handler_block_by_func(self.darkroom_toggle_cb)
+                self.darkroom_item.set_active(st.get('darkroom') == 'true')
+                self.darkroom_item.handler_unblock_by_func(self.darkroom_toggle_cb)
+
+                self.movie_item.handler_block_by_func(self.movie_toggle_cb)
+                self.movie_item.set_active(st.get('movie_mode') == 'true')
+                self.movie_item.handler_unblock_by_func(self.movie_toggle_cb)
+            except Exception:
+                pass
+
         self.status_menu.show_all()
         self.status_menu.popup(None, None, Gtk.StatusIcon.position_menu,
                                self.status_icon, button, time)
@@ -246,6 +347,9 @@ class RedshiftStatusIcon(object):
     # Info dialog callbacks
     def show_info_cb(self, widget, data=None):
         """Callback when the info dialog should be presented."""
+        raw = self.send_ipc('check')
+        if raw and hasattr(self, 'checks_label'):
+            self.checks_label.set_text(raw.strip())
         self.info_dialog.show()
 
     def response_info_cb(self, widget, data=None):

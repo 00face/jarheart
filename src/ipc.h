@@ -36,6 +36,10 @@ typedef struct {
 	int disabled;
 	time_t pause_until;
 	int override_temp;
+	int darkroom;
+	int movie_mode;
+	time_t movie_mode_until;
+	char current_preset[32];
 	period_t period;
 	double transition_prog;
 	color_setting_t current_setting;
@@ -43,6 +47,9 @@ typedef struct {
 	const char *method_name;
 	int requested_exit;
 	int state_changed;
+	int schedule_use_time;
+	time_range_t dawn;
+	time_range_t dusk;
 } daemon_ipc_state_t;
 
 /* Parse human duration string like "30m", "1h", "45s", "1800" into seconds.

@@ -109,6 +109,37 @@ randr_init(randr_state_t **state)
 	return 0;
 }
 
+/* Check if a gamma ramp is noticeably warm/tinted or distorted,
+   which indicates a prior redshift run or blue light filter was active. */
+static int
+randr_ramp_is_tinted(const XRRCrtcGamma *g, int size)
+{
+	if (g == NULL || size < 2) return 0;
+	uint16_t max_r = g->red[size - 1];
+	uint16_t max_g = g->green[size - 1];
+	uint16_t max_b = g->blue[size - 1];
+
+	if (max_r > 1000) {
+		/* If blue is < 85% of red or green is < 70% of red at full white */
+		if ((uint32_t)max_b * 100 < (uint32_t)max_r * 85 ||
+		    (uint32_t)max_g * 100 < (uint32_t)max_r * 70) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void
+randr_fill_linear(uint16_t *r, uint16_t *g, uint16_t *b, int size)
+{
+	for (int i = 0; i < size; i++) {
+		uint16_t val = (uint16_t)(((double)i / (size > 1 ? (size - 1) : 1)) * UINT16_MAX);
+		r[i] = val;
+		g[i] = val;
+		b[i] = val;
+	}
+}
+
 static int
 randr_start(randr_state_t *state)
 {
@@ -165,9 +196,15 @@ randr_start(randr_state_t *state)
 		if (state->crtcs[i].saved_r &&
 		    state->crtcs[i].saved_g &&
 		    state->crtcs[i].saved_b) {
-			memcpy(state->crtcs[i].saved_r, g->red, size * sizeof(uint16_t));
-			memcpy(state->crtcs[i].saved_g, g->green, size * sizeof(uint16_t));
-			memcpy(state->crtcs[i].saved_b, g->blue, size * sizeof(uint16_t));
+			if (randr_ramp_is_tinted(g, size)) {
+				randr_fill_linear(state->crtcs[i].saved_r,
+						  state->crtcs[i].saved_g,
+						  state->crtcs[i].saved_b, size);
+			} else {
+				memcpy(state->crtcs[i].saved_r, g->red, size * sizeof(uint16_t));
+				memcpy(state->crtcs[i].saved_g, g->green, size * sizeof(uint16_t));
+				memcpy(state->crtcs[i].saved_b, g->blue, size * sizeof(uint16_t));
+			}
 		}
 
 		XRRFreeGamma(g);
@@ -243,9 +280,15 @@ randr_refresh_crtcs(randr_state_t *state)
 				new_crtcs[i].saved_g = malloc(size * sizeof(uint16_t));
 				new_crtcs[i].saved_b = malloc(size * sizeof(uint16_t));
 				if (new_crtcs[i].saved_r && new_crtcs[i].saved_g && new_crtcs[i].saved_b) {
-					memcpy(new_crtcs[i].saved_r, g->red, size * sizeof(uint16_t));
-					memcpy(new_crtcs[i].saved_g, g->green, size * sizeof(uint16_t));
-					memcpy(new_crtcs[i].saved_b, g->blue, size * sizeof(uint16_t));
+					if (randr_ramp_is_tinted(g, size)) {
+						randr_fill_linear(new_crtcs[i].saved_r,
+								  new_crtcs[i].saved_g,
+								  new_crtcs[i].saved_b, size);
+					} else {
+						memcpy(new_crtcs[i].saved_r, g->red, size * sizeof(uint16_t));
+						memcpy(new_crtcs[i].saved_g, g->green, size * sizeof(uint16_t));
+						memcpy(new_crtcs[i].saved_b, g->blue, size * sizeof(uint16_t));
+					}
 				}
 				XRRFreeGamma(g);
 			}
@@ -273,7 +316,7 @@ randr_restore(randr_state_t *state)
 	if (state == NULL || state->dpy == NULL || state->crtcs == NULL) return;
 
 	for (int i = 0; i < state->crtc_count; i++) {
-		if (state->crtcs[i].ramp_size <= 0 || state->crtcs[i].saved_r == NULL) {
+		if (state->crtcs[i].ramp_size <= 0) {
 			continue;
 		}
 
@@ -281,9 +324,13 @@ randr_restore(randr_state_t *state)
 		XRRCrtcGamma *gamma = XRRAllocGamma(size);
 		if (gamma == NULL) continue;
 
-		memcpy(gamma->red, state->crtcs[i].saved_r, size * sizeof(uint16_t));
-		memcpy(gamma->green, state->crtcs[i].saved_g, size * sizeof(uint16_t));
-		memcpy(gamma->blue, state->crtcs[i].saved_b, size * sizeof(uint16_t));
+		if (state->crtcs[i].saved_r != NULL) {
+			memcpy(gamma->red, state->crtcs[i].saved_r, size * sizeof(uint16_t));
+			memcpy(gamma->green, state->crtcs[i].saved_g, size * sizeof(uint16_t));
+			memcpy(gamma->blue, state->crtcs[i].saved_b, size * sizeof(uint16_t));
+		} else {
+			randr_fill_linear(gamma->red, gamma->green, gamma->blue, size);
+		}
 
 		XRRSetCrtcGamma(state->dpy, state->crtcs[i].crtc, gamma);
 		XRRFreeGamma(gamma);
@@ -410,6 +457,21 @@ randr_set_temperature_for_crtc(
 		return -1;
 	}
 
+	int is_neutral = (setting->temperature == NEUTRAL_TEMP &&
+			  setting->brightness >= 0.999f && setting->brightness <= 1.001f &&
+			  setting->gamma[0] >= 0.999f && setting->gamma[0] <= 1.001f &&
+			  setting->gamma[1] >= 0.999f && setting->gamma[1] <= 1.001f &&
+			  setting->gamma[2] >= 0.999f && setting->gamma[2] <= 1.001f &&
+			  !setting->darkroom && !setting->movie_mode);
+
+	if (is_neutral) {
+		/* Directly write a clean linear identity ramp to revert to hardware defaults */
+		randr_fill_linear(gamma->red, gamma->green, gamma->blue, ramp_size);
+		XRRSetCrtcGamma(state->dpy, state->crtcs[crtc_num].crtc, gamma);
+		XRRFreeGamma(gamma);
+		return 0;
+	}
+
 	if (preserve && state->crtcs[crtc_num].saved_r != NULL) {
 		memcpy(gamma->red, state->crtcs[crtc_num].saved_r,
 		       ramp_size * sizeof(uint16_t));
@@ -418,12 +480,7 @@ randr_set_temperature_for_crtc(
 		memcpy(gamma->blue, state->crtcs[crtc_num].saved_b,
 		       ramp_size * sizeof(uint16_t));
 	} else {
-		for (int i = 0; i < ramp_size; i++) {
-			uint16_t value = (uint16_t)(((double)i / (ramp_size - 1)) * UINT16_MAX);
-			gamma->red[i] = value;
-			gamma->green[i] = value;
-			gamma->blue[i] = value;
-		}
+		randr_fill_linear(gamma->red, gamma->green, gamma->blue, ramp_size);
 	}
 
 	colorramp_fill(gamma->red, gamma->green, gamma->blue, ramp_size, setting);

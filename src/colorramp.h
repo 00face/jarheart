@@ -24,6 +24,15 @@
 
 #include "redshift.h"
 
+typedef struct {
+	const char *name;
+	const char *display_name;
+	int temperature;
+} kelvin_preset_t;
+
+const kelvin_preset_t *colorramp_find_preset(const char *name);
+const kelvin_preset_t *colorramp_get_presets(void);
+
 void colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 		    int size, const color_setting_t *setting);
 void colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,

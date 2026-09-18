@@ -46,6 +46,8 @@ typedef struct {
 	int temperature;
 	float gamma[3];
 	float brightness;
+	int darkroom;
+	int movie_mode;
 } color_setting_t;
 
 /* Program modes. */

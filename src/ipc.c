@@ -22,6 +22,8 @@
 #endif
 
 #include "ipc.h"
+#include "colorramp.h"
+#include "checks.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,6 +91,22 @@ ipc_parse_duration(const char *str)
 	return -1;
 }
 
+static int
+parse_simple_time_range(const char *str, time_range_t *range)
+{
+	int h1 = 0, m1 = 0, h2 = 0, m2 = 0;
+	if (sscanf(str, "%d:%d-%d:%d", &h1, &m1, &h2, &m2) == 4) {
+		range->start = h1 * 3600 + m1 * 60;
+		range->end = h2 * 3600 + m2 * 60;
+		return 0;
+	} else if (sscanf(str, "%d:%d", &h1, &m1) == 2) {
+		range->start = h1 * 3600 + m1 * 60;
+		range->end = range->start;
+		return 0;
+	}
+	return -1;
+}
+
 int
 ipc_dispatch_command(
 	const char *cmd_line, daemon_ipc_state_t *state,
@@ -133,6 +151,12 @@ ipc_dispatch_command(
 			status_str = "Paused";
 		} else if (state->disabled) {
 			status_str = "Disabled";
+		} else if (state->darkroom) {
+			status_str = "Darkroom";
+		} else if (state->movie_mode) {
+			status_str = "Movie Mode";
+		} else if (state->current_preset[0] != '\0') {
+			status_str = state->current_preset;
 		} else if (state->override_temp > 0) {
 			status_str = "Override";
 		}
@@ -154,6 +178,8 @@ ipc_dispatch_command(
 		}
 
 		long remaining = is_paused ? (long)(state->pause_until - now) : 0;
+		long movie_remaining = (state->movie_mode && state->movie_mode_until > now) ?
+			(long)(state->movie_mode_until - now) : 0;
 
 		if (arg != NULL && (strcasecmp(arg, "--json") == 0 || strcasecmp(arg, "-j") == 0 || strcasecmp(arg, "json") == 0)) {
 			snprintf(response_buf, response_buf_size,
@@ -168,6 +194,11 @@ ipc_dispatch_command(
 				 "  \"method\": \"%s\",\n"
 				 "  \"paused\": %s,\n"
 				 "  \"pause_remaining\": %ld,\n"
+				 "  \"darkroom\": %s,\n"
+				 "  \"movie_mode\": %s,\n"
+				 "  \"movie_remaining\": %ld,\n"
+				 "  \"preset\": \"%s\",\n"
+				 "  \"schedule\": \"%s\",\n"
 				 "  \"override_temp\": %d,\n"
 				 "  \"text\": \"%uK\",\n"
 				 "  \"alt\": \"%s\",\n"
@@ -186,6 +217,11 @@ ipc_dispatch_command(
 				 state->method_name ? state->method_name : "none",
 				 is_paused ? "true" : "false",
 				 remaining,
+				 state->darkroom ? "true" : "false",
+				 state->movie_mode ? "true" : "false",
+				 movie_remaining,
+				 state->current_preset[0] ? state->current_preset : "none",
+				 state->schedule_use_time ? "time" : "solar",
 				 state->override_temp,
 				 state->current_setting.temperature,
 				 period_str,
@@ -212,6 +248,10 @@ ipc_dispatch_command(
 			 "Location: %s\n"
 			 "Method: %s\n"
 			 "Pause remaining: %lds\n"
+			 "Darkroom: %s\n"
+			 "Movie mode: %s%s%ld%s\n"
+			 "Preset: %s\n"
+			 "Schedule: %s\n"
 			 "Override temp: %d\n",
 			 status_str,
 			 period_str,
@@ -224,6 +264,13 @@ ipc_dispatch_command(
 			 loc_str,
 			 state->method_name ? state->method_name : "none",
 			 remaining,
+			 state->darkroom ? "Active (monochrome red)" : "Inactive",
+			 state->movie_mode ? "Active" : "Inactive",
+			 state->movie_mode ? " (" : "",
+			 movie_remaining,
+			 state->movie_mode ? "s remaining)" : "",
+			 state->current_preset[0] ? state->current_preset : "None",
+			 state->schedule_use_time ? "Time schedule" : "Solar elevation",
 			 state->override_temp);
 		return 0;
 	} else if (strcasecmp(cmd, "toggle") == 0) {
@@ -254,7 +301,7 @@ ipc_dispatch_command(
 		state->override_temp = 0;
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size,
-			 "Status: Paused\n"
+			 "Status: Paused (Color-critical pause)\n"
 			 "Remaining: %ds\n", duration);
 		return 0;
 	} else if (strcasecmp(cmd, "resume") == 0 || strcasecmp(cmd, "unpause") == 0 ||
@@ -270,21 +317,168 @@ ipc_dispatch_command(
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size, "Status: Disabled\n");
 		return 0;
+	} else if (strcasecmp(cmd, "darkroom") == 0) {
+		if (strcasecmp(arg, "off") == 0) {
+			state->darkroom = 0;
+		} else if (strcasecmp(arg, "on") == 0) {
+			state->darkroom = 1;
+			state->movie_mode = 0;
+			state->disabled = 0;
+			state->pause_until = 0;
+			state->override_temp = 0;
+			state->current_preset[0] = '\0';
+		} else {
+			state->darkroom = !state->darkroom;
+			if (state->darkroom) {
+				state->movie_mode = 0;
+				state->disabled = 0;
+				state->pause_until = 0;
+				state->override_temp = 0;
+				state->current_preset[0] = '\0';
+			}
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Darkroom mode: %s (monochrome deep red, zero blue/green)\n",
+			 state->darkroom ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "movie") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "stop") == 0) {
+			state->movie_mode = 0;
+			state->movie_mode_until = 0;
+			state->override_temp = 0;
+			state->current_preset[0] = '\0';
+		} else {
+			int duration = 9000; /* Default: 2.5 hours = 150 minutes */
+			if (*arg != '\0' && strcasecmp(arg, "on") != 0) {
+				int parsed = ipc_parse_duration(arg);
+				if (parsed > 0) duration = parsed;
+			}
+			state->movie_mode = 1;
+			state->movie_mode_until = now + duration;
+			state->darkroom = 0;
+			state->disabled = 0;
+			state->pause_until = 0;
+			state->override_temp = 4200;
+			snprintf(state->current_preset, sizeof(state->current_preset), "Movie");
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Movie mode: %s%s%lds%s\n",
+			 state->movie_mode ? "Enabled" : "Disabled",
+			 state->movie_mode ? " (" : "",
+			 state->movie_mode ? (long)(state->movie_mode_until - now) : 0,
+			 state->movie_mode ? " remaining, 4200K cinema tone preserving sky and shadow detail)" : "");
+		return 0;
+	} else if (strcasecmp(cmd, "preset") == 0) {
+		if (*arg == '\0') {
+			return ipc_dispatch_command("presets", state, response_buf, response_buf_size);
+		}
+		const kelvin_preset_t *preset = colorramp_find_preset(arg);
+		if (preset == NULL) {
+			snprintf(response_buf, response_buf_size,
+				 "Error: Unknown preset '%s'. Type 'jarheart presets' to view available presets.\n", arg);
+			return 0;
+		}
+		state->override_temp = preset->temperature;
+		snprintf(state->current_preset, sizeof(state->current_preset), "%s", preset->display_name);
+		state->darkroom = 0;
+		state->movie_mode = 0;
+		state->disabled = 0;
+		state->pause_until = 0;
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Preset: %s (%dK)\n", preset->display_name, preset->temperature);
+		return 0;
+	} else if (strcasecmp(cmd, "presets") == 0) {
+		const kelvin_preset_t *list = colorramp_get_presets();
+		size_t pos = snprintf(response_buf, response_buf_size, "Available Kelvin Presets:\n");
+		for (int i = 0; list[i].name != NULL && pos + 80 < response_buf_size; i++) {
+			pos += snprintf(response_buf + pos, response_buf_size - pos,
+					"  %-18s %5dK  (%s)\n",
+					list[i].name, list[i].temperature, list[i].display_name);
+		}
+		return 0;
+	} else if (strcasecmp(cmd, "check") == 0) {
+		checks_result_t chk;
+		checks_format_summary(&chk, response_buf, response_buf_size);
+		return 0;
+	} else if (strcasecmp(cmd, "weather") == 0) {
+		checks_result_t chk;
+		memset(&chk, 0, sizeof(chk));
+		checks_check_weather(&chk, 1);
+		snprintf(response_buf, response_buf_size, "Weather: %s\n", chk.weather_summary);
+		return 0;
+	} else if (strcasecmp(cmd, "schedule") == 0) {
+		if (strcasecmp(arg, "solar") == 0 || strcasecmp(arg, "auto") == 0) {
+			state->schedule_use_time = 0;
+			state->state_changed = 1;
+			snprintf(response_buf, response_buf_size, "Schedule: Solar elevation (automatic)\n");
+			return 0;
+		} else if (*arg != '\0') {
+			char dawn_str[64], dusk_str[64];
+			if (sscanf(arg, "%63s %63s", dawn_str, dusk_str) == 2) {
+				time_range_t dawn_r, dusk_r;
+				if (parse_simple_time_range(dawn_str, &dawn_r) == 0 &&
+				    parse_simple_time_range(dusk_str, &dusk_r) == 0) {
+					state->dawn = dawn_r;
+					state->dusk = dusk_r;
+					state->schedule_use_time = 1;
+					state->state_changed = 1;
+					snprintf(response_buf, response_buf_size,
+						 "Schedule: Time-based (Dawn: %s, Dusk: %s)\n",
+						 dawn_str, dusk_str);
+					return 0;
+				}
+			}
+			snprintf(response_buf, response_buf_size,
+				 "Error: Invalid schedule parameters. Usage: schedule <dawn> <dusk> (e.g. schedule 06:30-07:30 19:30-20:45) or 'schedule solar'\n");
+			return 0;
+		} else {
+			if (state->schedule_use_time) {
+				snprintf(response_buf, response_buf_size,
+					 "Schedule: Time-based (Dawn: %02d:%02d-%02d:%02d, Dusk: %02d:%02d-%02d:%02d)\n",
+					 state->dawn.start / 3600, (state->dawn.start % 3600) / 60,
+					 state->dawn.end / 3600, (state->dawn.end % 3600) / 60,
+					 state->dusk.start / 3600, (state->dusk.start % 3600) / 60,
+					 state->dusk.end / 3600, (state->dusk.end % 3600) / 60);
+			} else {
+				snprintf(response_buf, response_buf_size,
+					 "Schedule: Solar elevation (dynamic sunrise/sunset)\n");
+			}
+			return 0;
+		}
 	} else if (strcasecmp(cmd, "set") == 0) {
 		if (*arg == '\0') {
 			snprintf(response_buf, response_buf_size,
-				 "Error: Missing temperature value. Usage: set <TEMP>\n");
+				 "Error: Missing temperature or preset value. Usage: set <TEMP|PRESET>\n");
+			return 0;
+		}
+		const kelvin_preset_t *preset = colorramp_find_preset(arg);
+		if (preset != NULL) {
+			state->override_temp = preset->temperature;
+			snprintf(state->current_preset, sizeof(state->current_preset), "%s", preset->display_name);
+			state->darkroom = 0;
+			state->movie_mode = 0;
+			state->disabled = 0;
+			state->pause_until = 0;
+			state->state_changed = 1;
+			snprintf(response_buf, response_buf_size,
+				 "Preset: %s (%dK)\n", preset->display_name, preset->temperature);
 			return 0;
 		}
 		int temp = atoi(arg);
 		if (temp < 1000 || temp > 25000) {
 			snprintf(response_buf, response_buf_size,
-				 "Error: Temperature must be between 1000K and 25000K (got %dK)\n", temp);
+				 "Error: Temperature must be between 1000K and 25000K (got %dK) or a preset name\n", temp);
 			return 0;
 		}
 		state->pause_until = 0;
 		state->override_temp = temp;
 		state->disabled = 0;
+		state->darkroom = 0;
+		state->movie_mode = 0;
+		state->current_preset[0] = '\0';
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size,
 			 "Status: Override\n"
@@ -293,6 +487,10 @@ ipc_dispatch_command(
 	} else if (strcasecmp(cmd, "reset") == 0) {
 		state->override_temp = 0;
 		state->pause_until = 0;
+		state->darkroom = 0;
+		state->movie_mode = 0;
+		state->movie_mode_until = 0;
+		state->current_preset[0] = '\0';
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size, "Status: Normal\n");
 		return 0;
@@ -305,13 +503,20 @@ ipc_dispatch_command(
 	} else if (strcasecmp(cmd, "help") == 0) {
 		snprintf(response_buf, response_buf_size,
 			 "Available commands:\n"
-			 "  status         Show current daemon status\n"
-			 "  toggle         Toggle enabled / disabled state\n"
-			 "  pause [TIME]   Pause adjustments (e.g. 30m, 1h, 1800)\n"
-			 "  resume         Resume adjustments\n"
-			 "  set TEMP       Temporarily override temperature (e.g. 3500)\n"
-			 "  reset          Clear manual overrides and pause\n"
-			 "  quit           Terminate the running daemon\n");
+			 "  status           Show current daemon status (or status -j for JSON)\n"
+			 "  toggle           Toggle enabled / disabled state\n"
+			 "  pause [TIME]     Color-critical pause (e.g. 30m, 1h, 1800)\n"
+			 "  resume           Resume adjustments\n"
+			 "  darkroom [on|off]Deep monochrome red for stargazing & darkrooms\n"
+			 "  movie [TIME|off] Movie Mode (2.5h duration, warm tone, preserves sky & shadows)\n"
+			 "  preset NAME      Set a Kelvin preset (candle, halogen, sunlight...)\n"
+			 "  presets          List all Kelvin presets and color temperatures\n"
+			 "  schedule [TIMES] Set or view time-based or solar schedule\n"
+			 "  check            Run gentle light, weather, and timezone checks\n"
+			 "  weather          Check current local weather\n"
+			 "  set TEMP|PRESET  Temporarily override temperature\n"
+			 "  reset            Clear manual overrides, presets, and pause\n"
+			 "  quit             Terminate the running daemon\n");
 		return 0;
 	} else {
 		snprintf(response_buf, response_buf_size,
@@ -577,6 +782,8 @@ ipc_client_dispatch(int argc, char *argv[])
 	const char *known_cmds[] = {
 		"status", "toggle", "pause", "suspend", "resume", "unpause",
 		"on", "off", "enable", "disable", "set", "reset",
+		"darkroom", "movie", "preset", "presets", "schedule",
+		"check", "weather",
 		"quit", "exit", "stop", "help", NULL
 	};
 

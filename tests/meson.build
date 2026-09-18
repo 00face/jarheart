@@ -28,6 +28,9 @@ test_ipc = executable(
   'test_ipc',
   'test_ipc.c',
   '../src/ipc.c',
+  '../src/colorramp.c',
+  '../src/checks.c',
+  '../src/location-timezone.c',
   include_directories: [inc_root, inc_src],
   dependencies: [m_dep],
 )

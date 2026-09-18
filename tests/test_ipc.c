@@ -118,10 +118,73 @@ test_command_dispatch(void)
 	assert(strstr(resp, "Status: Override") != NULL);
 	assert(strstr(resp, "Color temperature: 3500K") != NULL);
 
-	/* Test 'reset' */
+	/* Test 'darkroom' */
+	r = ipc_dispatch_command("darkroom", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.darkroom == 1);
+	assert(strstr(resp, "Darkroom mode: Enabled") != NULL);
+
+	r = ipc_dispatch_command("darkroom off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.darkroom == 0);
+	assert(strstr(resp, "Darkroom mode: Disabled") != NULL);
+
+	/* Test 'movie' */
+	r = ipc_dispatch_command("movie", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.movie_mode == 1);
+	assert(state.movie_mode_until > time(NULL));
+	assert(state.override_temp == 4200);
+	assert(strstr(resp, "Movie mode: Enabled") != NULL);
+
+	r = ipc_dispatch_command("movie off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.movie_mode == 0);
+	assert(strstr(resp, "Movie mode: Disabled") != NULL);
+
+	/* Test 'preset candle' */
+	r = ipc_dispatch_command("preset candle", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.override_temp == 1900);
+	assert(strcmp(state.current_preset, "Candle") == 0);
+	assert(strstr(resp, "Candle (1900K)") != NULL);
+
+	/* Test 'presets' list */
+	r = ipc_dispatch_command("presets", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "ember") != NULL);
+	assert(strstr(resp, "candle") != NULL);
+	assert(strstr(resp, "moon") != NULL);
+	assert(strstr(resp, "sunlight") != NULL);
+
+	/* Test 'set daylight' */
+	r = ipc_dispatch_command("set daylight", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.override_temp == 6500);
+
+	/* Test 'schedule' */
+	r = ipc_dispatch_command("schedule 06:00-07:30 19:00-20:30", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.schedule_use_time == 1);
+	assert(state.dawn.start == 6 * 3600);
+	assert(state.dawn.end == 7 * 3600 + 30 * 60);
+	assert(strstr(resp, "Time-based") != NULL);
+
+	r = ipc_dispatch_command("schedule solar", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.schedule_use_time == 0);
+	assert(strstr(resp, "Solar elevation") != NULL);
+
+	/* Test 'reset' clears presets and modes */
+	state.darkroom = 1;
+	state.movie_mode = 1;
+	state.override_temp = 2000;
 	r = ipc_dispatch_command("reset", &state, resp, sizeof(resp));
 	assert(r == 0);
+	assert(state.darkroom == 0);
+	assert(state.movie_mode == 0);
 	assert(state.override_temp == 0);
+	assert(state.current_preset[0] == '\0');
 	assert(strstr(resp, "Status: Normal") != NULL);
 
 	/* Test 'quit' */

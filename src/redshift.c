@@ -67,6 +67,7 @@ int poll(struct pollfd *fds, int nfds, int timeout) { abort(); return -1; }
 #include "signals.h"
 #include "options.h"
 #include "ipc.h"
+#include "checks.h"
 
 /* pause() is not defined on windows platform but is not needed either.
    Use a noop macro instead. */
@@ -282,6 +283,8 @@ interpolate_color_settings(
 		result->gamma[i] = (1.0-alpha)*first->gamma[i] +
 			alpha*second->gamma[i];
 	}
+	result->darkroom = second->darkroom;
+	result->movie_mode = second->movie_mode;
 }
 
 /* Interpolate color setting structs transition scheme. */
@@ -309,7 +312,9 @@ color_setting_diff_is_major(
 		fabsf(first->brightness - second->brightness) > 0.1 ||
 		fabsf(first->gamma[0] - second->gamma[0]) > 0.1 ||
 		fabsf(first->gamma[1] - second->gamma[1]) > 0.1 ||
-		fabsf(first->gamma[2] - second->gamma[2]) > 0.1);
+		fabsf(first->gamma[2] - second->gamma[2]) > 0.1 ||
+		first->darkroom != second->darkroom ||
+		first->movie_mode != second->movie_mode);
 }
 
 /* Reset color setting to default values. */
@@ -321,6 +326,8 @@ color_setting_reset(color_setting_t *color)
 	color->gamma[1] = 1.0;
 	color->gamma[2] = 1.0;
 	color->brightness = 1.0;
+	color->darkroom = 0;
+	color->movie_mode = 0;
 }
 
 
@@ -640,6 +647,9 @@ run_continual_mode(const location_provider_t *provider,
 	}
 	daemon_ipc_state_t ipc_state;
 	memset(&ipc_state, 0, sizeof(ipc_state));
+	ipc_state.schedule_use_time = scheme->use_time;
+	ipc_state.dawn = scheme->dawn;
+	ipc_state.dusk = scheme->dusk;
 #endif
 
 	/* Save previous parameters so we can avoid printing status updates if
@@ -709,6 +719,30 @@ run_continual_mode(const location_provider_t *provider,
 				disabled = 1;
 			}
 		}
+
+		/* Check movie mode expiration */
+		if (ipc_state.movie_mode && ipc_state.movie_mode_until > 0) {
+			if (now_epoch >= ipc_state.movie_mode_until) {
+				ipc_state.movie_mode = 0;
+				ipc_state.movie_mode_until = 0;
+				if (strcmp(ipc_state.current_preset, "Movie") == 0) {
+					ipc_state.current_preset[0] = '\0';
+				}
+			}
+		}
+
+		/* Occasional gentle timezone check every 60 seconds */
+		static time_t last_tz_check = 0;
+		if (now_epoch - last_tz_check >= 60) {
+			last_tz_check = now_epoch;
+			checks_result_t tz_chk;
+			if (checks_check_timezone(&tz_chk) == 0 && tz_chk.timezone_changed) {
+				if (verbose) {
+					printf(_("Timezone update detected: %s\n"), tz_chk.timezone_summary);
+				}
+				loc = tz_chk.timezone_location;
+			}
+		}
 #endif
 
 		/* Check to see if disable signal was caught */
@@ -755,12 +789,24 @@ run_continual_mode(const location_provider_t *provider,
 
 		period_t period;
 		double transition_prog;
-		if (scheme->use_time) {
+		int active_use_time = scheme->use_time;
+#ifndef _WIN32
+		if (ipc_state.schedule_use_time) {
+			active_use_time = 1;
+		}
+#endif
+		if (active_use_time) {
 			int time_offset = get_seconds_since_midnight(now);
-
-			period = get_period_from_time(scheme, time_offset);
+			transition_scheme_t cur_scheme = *scheme;
+#ifndef _WIN32
+			if (ipc_state.schedule_use_time) {
+				cur_scheme.dawn = ipc_state.dawn;
+				cur_scheme.dusk = ipc_state.dusk;
+			}
+#endif
+			period = get_period_from_time(&cur_scheme, time_offset);
 			transition_prog = get_transition_progress_from_time(
-				scheme, time_offset);
+				&cur_scheme, time_offset);
 		} else {
 			/* Current angular elevation of the sun */
 			double elevation = solar_elevation(
@@ -779,8 +825,19 @@ run_continual_mode(const location_provider_t *provider,
 			scheme, transition_prog, &target_interp);
 
 #ifndef _WIN32
-		if (ipc_state.override_temp > 0) {
-			target_interp.temperature = ipc_state.override_temp;
+		if (ipc_state.darkroom) {
+			target_interp.darkroom = 1;
+			target_interp.movie_mode = 0;
+		} else if (ipc_state.movie_mode) {
+			target_interp.darkroom = 0;
+			target_interp.movie_mode = 1;
+			target_interp.temperature = 4200;
+		} else {
+			target_interp.darkroom = 0;
+			target_interp.movie_mode = 0;
+			if (ipc_state.override_temp > 0) {
+				target_interp.temperature = ipc_state.override_temp;
+			}
 		}
 #endif
 

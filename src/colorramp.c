@@ -20,8 +20,11 @@
 
 #include <stdint.h>
 #include <math.h>
+#include <string.h>
+#include <ctype.h>
 
 #include "redshift.h"
+#include "colorramp.h"
 
 /* Whitepoint values for temperatures at 100K intervals.
    These will be interpolated for the actual temperature.
@@ -281,6 +284,67 @@ interpolate_color(float a, const float *c1, const float *c2, float *c)
 	c[2] = (1.0-a)*c1[2] + a*c2[2];
 }
 
+static const kelvin_preset_t kelvin_presets[] = {
+	{ "ember", "Ember", 1200 },
+	{ "candle", "Candle", 1900 },
+	{ "mars", "Mars", 2100 },
+	{ "warm-incandescent", "Warm Incandescent", 2300 },
+	{ "incandescent", "Incandescent", 2700 },
+	{ "jupiter", "Jupiter", 3200 },
+	{ "halogen", "Halogen", 3400 },
+	{ "saturn", "Saturn", 3800 },
+	{ "moon", "Moon", 4100 },
+	{ "fluorescent", "Fluorescent", 4200 },
+	{ "venus", "Venus", 4800 },
+	{ "sunlight", "Sunlight", 5500 },
+	{ "mercury", "Mercury", 5800 },
+	{ "daylight", "Daylight", 6500 },
+	{ NULL, NULL, 0 }
+};
+
+const kelvin_preset_t *
+colorramp_get_presets(void)
+{
+	return kelvin_presets;
+}
+
+static void
+normalize_preset_name(const char *src, char *dst, size_t dst_size)
+{
+	size_t j = 0;
+	for (size_t i = 0; src[i] != '\0' && j + 1 < dst_size; i++) {
+		char c = src[i];
+		if (isalnum((unsigned char)c)) {
+			dst[j++] = (char)tolower((unsigned char)c);
+		}
+	}
+	dst[j] = '\0';
+}
+
+const kelvin_preset_t *
+colorramp_find_preset(const char *name)
+{
+	if (name == NULL || *name == '\0') return NULL;
+
+	char norm[64];
+	normalize_preset_name(name, norm, sizeof(norm));
+
+	for (int i = 0; kelvin_presets[i].name != NULL; i++) {
+		char preset_norm[64];
+		normalize_preset_name(kelvin_presets[i].name, preset_norm, sizeof(preset_norm));
+		if (strcmp(norm, preset_norm) == 0) {
+			return &kelvin_presets[i];
+		}
+	}
+
+	/* Short aliases */
+	if (strcmp(norm, "warm") == 0) return &kelvin_presets[3]; /* warm-incandescent */
+	if (strcmp(norm, "sun") == 0) return &kelvin_presets[11]; /* sunlight */
+	if (strcmp(norm, "day") == 0) return &kelvin_presets[13]; /* daylight */
+
+	return NULL;
+}
+
 /* Helper macro used in the fill functions */
 #define F(Y, C)  pow((Y) * setting->brightness * \
 		     white_point[C], 1.0/setting->gamma[C])
@@ -289,20 +353,53 @@ void
 colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 	       int size, const color_setting_t *setting)
 {
+	if (setting->darkroom) {
+		/* Darkroom mode: Pure monochrome red. Zero green and blue photons to
+		   preserve dark adaptation / eliminate eye strain in pitch black. */
+		for (int i = 0; i < size; i++) {
+			double Y = (double)i / (size > 1 ? (size - 1) : 1);
+			double r_val = pow(Y * setting->brightness * 0.85, 1.0 / setting->gamma[0]);
+			if (r_val > 1.0) r_val = 1.0;
+			if (r_val < 0.0) r_val = 0.0;
+			gamma_r[i] = (uint16_t)(r_val * UINT16_MAX);
+			gamma_g[i] = 0;
+			gamma_b[i] = 0;
+		}
+		return;
+	}
+
+	int temp = setting->movie_mode ? 4200 : setting->temperature;
+	if (temp < 1000) temp = 1000;
+	if (temp > 25000) temp = 25000;
+
 	/* Approximate white point */
 	float white_point[3];
-	float alpha = (setting->temperature % 100) / 100.0;
-	int temp_index = ((setting->temperature - 1000) / 100)*3;
+	float alpha = (temp % 100) / 100.0f;
+	int temp_index = ((temp - 1000) / 100) * 3;
 	interpolate_color(alpha, &blackbody_color[temp_index],
 			  &blackbody_color[temp_index+3], white_point);
 
 	for (int i = 0; i < size; i++) {
-		gamma_r[i] = F((double)gamma_r[i]/(UINT16_MAX+1), 0) *
-			(UINT16_MAX+1);
-		gamma_g[i] = F((double)gamma_g[i]/(UINT16_MAX+1), 1) *
-			(UINT16_MAX+1);
-		gamma_b[i] = F((double)gamma_b[i]/(UINT16_MAX+1), 2) *
-			(UINT16_MAX+1);
+		double Y = (double)gamma_r[i] / (UINT16_MAX + 1);
+		if (setting->movie_mode) {
+			/* Shadow lift: Reveal shadow details in movies without crushing blacks */
+			double Y_lifted = pow(Y, 0.88);
+			/* Sky preservation: Blend blue toward daylight in upper highlights */
+			float sky_blue = white_point[2] + (1.0f - white_point[2]) * (float)(pow(Y, 1.8) * 0.45f);
+			if (sky_blue > 1.0f) sky_blue = 1.0f;
+
+			double r = pow(Y_lifted * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
+			double g = pow(Y_lifted * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
+			double b = pow(Y_lifted * setting->brightness * sky_blue, 1.0 / setting->gamma[2]);
+
+			gamma_r[i] = (uint16_t)(fmin(fmax(r, 0.0), 1.0) * UINT16_MAX);
+			gamma_g[i] = (uint16_t)(fmin(fmax(g, 0.0), 1.0) * UINT16_MAX);
+			gamma_b[i] = (uint16_t)(fmin(fmax(b, 0.0), 1.0) * UINT16_MAX);
+		} else {
+			gamma_r[i] = F(Y, 0) * (UINT16_MAX + 1);
+			gamma_g[i] = F(Y, 1) * (UINT16_MAX + 1);
+			gamma_b[i] = F(Y, 2) * (UINT16_MAX + 1);
+		}
 	}
 }
 
@@ -310,17 +407,47 @@ void
 colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 		     int size, const color_setting_t *setting)
 {
+	if (setting->darkroom) {
+		for (int i = 0; i < size; i++) {
+			double Y = (double)i / (size > 1 ? (size - 1) : 1);
+			double r_val = pow(Y * setting->brightness * 0.85, 1.0 / setting->gamma[0]);
+			gamma_r[i] = (float)fmin(fmax(r_val, 0.0), 1.0);
+			gamma_g[i] = 0.0f;
+			gamma_b[i] = 0.0f;
+		}
+		return;
+	}
+
+	int temp = setting->movie_mode ? 4200 : setting->temperature;
+	if (temp < 1000) temp = 1000;
+	if (temp > 25000) temp = 25000;
+
 	/* Approximate white point */
 	float white_point[3];
-	float alpha = (setting->temperature % 100) / 100.0;
-	int temp_index = ((setting->temperature - 1000) / 100)*3;
+	float alpha = (temp % 100) / 100.0f;
+	int temp_index = ((temp - 1000) / 100) * 3;
 	interpolate_color(alpha, &blackbody_color[temp_index],
 			  &blackbody_color[temp_index+3], white_point);
 
 	for (int i = 0; i < size; i++) {
-		gamma_r[i] = F((double)gamma_r[i], 0);
-		gamma_g[i] = F((double)gamma_g[i], 1);
-		gamma_b[i] = F((double)gamma_b[i], 2);
+		double Y = (double)gamma_r[i];
+		if (setting->movie_mode) {
+			double Y_lifted = pow(Y, 0.88);
+			float sky_blue = white_point[2] + (1.0f - white_point[2]) * (float)(pow(Y, 1.8) * 0.45f);
+			if (sky_blue > 1.0f) sky_blue = 1.0f;
+
+			double r = pow(Y_lifted * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
+			double g = pow(Y_lifted * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
+			double b = pow(Y_lifted * setting->brightness * sky_blue, 1.0 / setting->gamma[2]);
+
+			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
+			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
+			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);
+		} else {
+			gamma_r[i] = F(Y, 0);
+			gamma_g[i] = F(Y, 1);
+			gamma_b[i] = F(Y, 2);
+		}
 	}
 }
 

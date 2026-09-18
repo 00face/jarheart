@@ -1,4 +1,5 @@
 jarheart_sources = files(
+  'checks.c',
   'colorramp.c',
   'config-ini.c',
   'gamma-dummy.c',

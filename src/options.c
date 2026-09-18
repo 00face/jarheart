@@ -168,12 +168,19 @@ print_help(const char *program_name)
 	fputs("\n", stdout);
 
 	fputs(_("Commands:\n"
-		"  status\tShow status of running daemon\n"
+		"  status\tShow status of running daemon (use -j for JSON)\n"
 		"  toggle\tToggle daemon on/off\n"
-		"  pause [TIME]\tPause daemon adjustments (e.g. 30m, 1h, 1800)\n"
+		"  pause [TIME]\tColor-critical pause (e.g. 30m, 1h, 1800)\n"
 		"  resume\tResume daemon adjustments\n"
-		"  set TEMP\tTemporarily override color temperature (e.g. 3500)\n"
-		"  reset\t\tClear manual overrides and pause\n"
+		"  darkroom\tToggle darkroom mode (monochrome deep red)\n"
+		"  movie [TIME]\tMovie Mode (2.5h, preserves sky & shadows)\n"
+		"  preset NAME\tActivate Kelvin preset (candle, halogen, sunlight...)\n"
+		"  presets\tList all Kelvin presets and color temperatures\n"
+		"  schedule [TIMES] Set or view time-based or solar schedule\n"
+		"  check\t\tRun gentle light, weather, and timezone checks\n"
+		"  weather\tCheck current local weather\n"
+		"  set TEMP|NAME\tTemporarily override color temperature or preset\n"
+		"  reset\t\tClear manual overrides, presets, and pause\n"
 		"  quit\t\tStop running daemon\n"), stdout);
 	fputs("\n", stdout);
 

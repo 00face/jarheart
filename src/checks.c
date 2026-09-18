@@ -227,3 +227,72 @@ checks_format_summary(checks_result_t *result, char *buf, size_t buf_size)
 
 	return 0;
 }
+
+int
+checks_ensure_pwm_free(void)
+{
+	DIR *dir = opendir("/sys/class/backlight");
+	if (dir == NULL) return -1;
+
+	struct dirent *ent;
+	int count = 0;
+	while ((ent = readdir(dir)) != NULL) {
+		if (ent->d_name[0] == '.') continue;
+
+		char max_path[512], b_path[512];
+		snprintf(max_path, sizeof(max_path), "/sys/class/backlight/%.128s/max_brightness", ent->d_name);
+		snprintf(b_path, sizeof(b_path), "/sys/class/backlight/%.128s/brightness", ent->d_name);
+
+		FILE *f_max = fopen(max_path, "r");
+		long max_b = -1;
+		if (f_max != NULL) {
+			if (fscanf(f_max, "%ld", &max_b) != 1) max_b = -1;
+			fclose(f_max);
+		}
+
+		if (max_b > 0) {
+			FILE *f_b = fopen(b_path, "r+");
+			if (f_b != NULL) {
+				long cur_b = -1;
+				if (fscanf(f_b, "%ld", &cur_b) == 1 && cur_b != max_b) {
+					rewind(f_b);
+					fprintf(f_b, "%ld\n", max_b);
+				}
+				fclose(f_b);
+				count++;
+			}
+		}
+	}
+	closedir(dir);
+	return count;
+}
+
+uint64_t
+checks_get_input_interrupts(void)
+{
+	FILE *f = fopen("/proc/interrupts", "r");
+	if (f == NULL) return 0;
+
+	uint64_t total = 0;
+	char line[512];
+	while (fgets(line, sizeof(line), f) != NULL) {
+		if (strstr(line, "i8042") != NULL ||
+		    strstr(line, "xhci_hcd") != NULL ||
+		    strstr(line, "ehci_hcd") != NULL) {
+			char *p = strchr(line, ':');
+			if (p == NULL) continue;
+			p++;
+			while (*p != '\0' && !isalpha((unsigned char)*p)) {
+				while (isspace((unsigned char)*p)) p++;
+				if (isdigit((unsigned char)*p)) {
+					uint64_t cnt = strtoull(p, &p, 10);
+					total += cnt;
+				} else {
+					break;
+				}
+			}
+		}
+	}
+	fclose(f);
+	return total;
+}

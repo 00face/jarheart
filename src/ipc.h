@@ -21,6 +21,7 @@
 #define JARHEART_IPC_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <time.h>
 #include "redshift.h"
 
@@ -54,6 +55,16 @@ typedef struct {
 	int couple_brightness;
 	int ambient_balancer;
 	int sunlight_mode;
+	int reading_mode;
+	int halation_tamer;
+	int melanopic_notch;
+	int pwm_free;
+	int strain_tracker;
+	int vignette_mode;
+	uint64_t total_active_seconds;
+	uint64_t restorative_seconds;
+	double hev_joules_saved;
+	int pacer_breaks_completed;
 	int pacer_interval;
 	time_t last_pacer_time;
 	int pacer_breathe;

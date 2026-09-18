@@ -80,6 +80,12 @@ test_command_dispatch(void)
 	assert(strstr(resp, "\"emoji\": \"🤍\"") != NULL);
 	assert(strstr(resp, "\"text\": \"🤍 6500K\"") != NULL);
 	assert(strstr(resp, "\"sunlight_mode\": false") != NULL);
+	assert(strstr(resp, "\"reading_mode\": false") != NULL);
+	assert(strstr(resp, "\"halation_tamer\": false") != NULL);
+	assert(strstr(resp, "\"melanopic_notch\": false") != NULL);
+	assert(strstr(resp, "\"pwm_free\": false") != NULL);
+	assert(strstr(resp, "\"strain_tracker\": false") != NULL);
+	assert(strstr(resp, "\"vignette_mode\": false") != NULL);
 
 	/* Test 'status --xfce' */
 	r = ipc_dispatch_command("status --xfce", &state, resp, sizeof(resp));
@@ -254,16 +260,101 @@ test_command_dispatch(void)
 	assert(state.sunlight_mode == 1);
 	assert(strstr(resp, "Sunlight / Outdoor mode: Enabled") != NULL);
 
+	/* Test 'reading' / 'epaper' */
+	r = ipc_dispatch_command("reading on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.reading_mode == 1);
+	assert(strstr(resp, "E-Paper Reading Mode: Enabled") != NULL);
+
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"reading_mode\": true") != NULL);
+	assert(strstr(resp, "\"emoji\": \"🤎\"") != NULL);
+
+	r = ipc_dispatch_command("reading off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.reading_mode == 0);
+	assert(strstr(resp, "E-Paper Reading Mode: Disabled") != NULL);
+
+	/* Test 'halation' */
+	r = ipc_dispatch_command("halation on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.halation_tamer == 1);
+	assert(strstr(resp, "Astigmatism Halation Tamer: Enabled") != NULL);
+
+	r = ipc_dispatch_command("halation off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.halation_tamer == 0);
+
+	/* Test 'notch' */
+	r = ipc_dispatch_command("notch on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.melanopic_notch == 1);
+	assert(strstr(resp, "Melanopic Cyan Notch Filter: Enabled") != NULL);
+
+	r = ipc_dispatch_command("notch off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.melanopic_notch == 0);
+
+	/* Test 'pwm-free' */
+	r = ipc_dispatch_command("pwm-free on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.pwm_free == 1);
+	assert(strstr(resp, "PWM-Free Dimming Protocol: Enabled") != NULL);
+
+	r = ipc_dispatch_command("pwm-free off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.pwm_free == 0);
+
+	/* Test 'strain' */
+	r = ipc_dispatch_command("strain on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.strain_tracker == 1);
+	assert(strstr(resp, "Input Strain & Adaptive Blink Pacer: Enabled") != NULL);
+
+	r = ipc_dispatch_command("strain off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.strain_tracker == 0);
+
+	/* Test 'vignette' */
+	r = ipc_dispatch_command("vignette on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.vignette_mode == 1);
+	assert(strstr(resp, "Peripheral Glare Shield: Enabled") != NULL);
+
+	r = ipc_dispatch_command("vignette off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.vignette_mode == 0);
+
+	/* Test 'stats' */
+	state.total_active_seconds = 7200;
+	state.restorative_seconds = 3600;
+	state.hev_joules_saved = 142.5;
+	state.pacer_breaks_completed = 4;
+	r = ipc_dispatch_command("stats", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "Ocular Ergonomics Telemetry:") != NULL);
+	assert(strstr(resp, "Active Exposure:       2 hours, 0 mins") != NULL);
+	assert(strstr(resp, "Restorative (<3400K):  1 hours, 0 mins") != NULL);
+
 	/* Test 'reset' clears presets and modes */
 	state.darkroom = 1;
 	state.movie_mode = 1;
 	state.sunlight_mode = 1;
+	state.reading_mode = 1;
+	state.halation_tamer = 1;
+	state.melanopic_notch = 1;
+	state.vignette_mode = 1;
 	state.override_temp = 2000;
 	r = ipc_dispatch_command("reset", &state, resp, sizeof(resp));
 	assert(r == 0);
 	assert(state.darkroom == 0);
 	assert(state.movie_mode == 0);
 	assert(state.sunlight_mode == 0);
+	assert(state.reading_mode == 0);
+	assert(state.halation_tamer == 0);
+	assert(state.melanopic_notch == 0);
+	assert(state.vignette_mode == 0);
 	assert(state.override_temp == 0);
 	assert(state.current_preset[0] == '\0');
 	assert(strstr(resp, "Status: Normal") != NULL);

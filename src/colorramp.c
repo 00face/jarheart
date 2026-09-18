@@ -312,10 +312,11 @@ colorramp_get_presets(void)
 }
 
 const char *
-colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight)
+colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight, int reading)
 {
 	if (disabled) return "🖤";
 	if (darkroom) return "❤️";
+	if (reading) return "🤎";
 	if (sunlight || temperature >= 7200) return "💙";
 	if (temperature <= 1600) return "❤️";
 	if (temperature <= 2200) return "❤️‍🔥";
@@ -377,12 +378,41 @@ colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 		   preserve dark adaptation / eliminate eye strain in pitch black. */
 		for (int i = 0; i < size; i++) {
 			double Y = (double)i / (size > 1 ? (size - 1) : 1);
+			if (setting->halation_tamer) {
+				Y = 0.05 + 0.81 * Y;
+			}
 			double r_val = pow(Y * setting->brightness * 0.85, 1.0 / setting->gamma[0]);
 			if (r_val > 1.0) r_val = 1.0;
 			if (r_val < 0.0) r_val = 0.0;
 			gamma_r[i] = (uint16_t)(r_val * UINT16_MAX);
 			gamma_g[i] = 0;
 			gamma_b[i] = 0;
+		}
+		return;
+	}
+
+	if (setting->reading_mode) {
+		/* E-Paper / Monochromatic Reading Mode:
+		   Eliminate ocular chromatic aberration via warm parchment monochrome.
+		   Text and code edges focus uniformly at a single retinal depth. */
+		const double paper_wr = 1.00;
+		const double paper_wg = 0.94;
+		const double paper_wb = 0.82;
+		for (int i = 0; i < size; i++) {
+			double Y = (double)gamma_r[i] / (UINT16_MAX + 1);
+			if (setting->halation_tamer) {
+				Y = 0.05 + 0.81 * Y;
+			}
+			double r = pow(Y * setting->brightness * paper_wr, 1.0 / setting->gamma[0]);
+			double g = pow(Y * setting->brightness * paper_wg, 1.0 / setting->gamma[1]);
+			double b = pow(Y * setting->brightness * paper_wb, 1.0 / setting->gamma[2]);
+
+			double r_out = fmin(fmax(r, 0.0), 1.0) * (UINT16_MAX + 1);
+			double g_out = fmin(fmax(g, 0.0), 1.0) * (UINT16_MAX + 1);
+			double b_out = fmin(fmax(b, 0.0), 1.0) * (UINT16_MAX + 1);
+			gamma_r[i] = (uint16_t)(r_out >= UINT16_MAX ? UINT16_MAX : r_out);
+			gamma_g[i] = (uint16_t)(g_out >= UINT16_MAX ? UINT16_MAX : g_out);
+			gamma_b[i] = (uint16_t)(b_out >= UINT16_MAX ? UINT16_MAX : b_out);
 		}
 		return;
 	}
@@ -399,8 +429,20 @@ colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 	interpolate_color(alpha, &blackbody_color[temp_index],
 			  &blackbody_color[temp_index+3], white_point);
 
+	/* 480nm Melanopic Cyan Notch Filter:
+	   Targeted depression of ipRGC-stimulating cyan band without crushing deep blues or greens */
+	if (setting->melanopic_notch) {
+		white_point[2] *= 0.65f;
+		white_point[1] *= 0.96f;
+	}
+
 	for (int i = 0; i < size; i++) {
 		double Y = (double)gamma_r[i] / (UINT16_MAX + 1);
+		if (setting->halation_tamer) {
+			/* Astigmatism Halation Tamer: compress dynamic range to tame glowing letters & glare */
+			Y = 0.05 + 0.81 * Y;
+		}
+
 		if (setting->movie_mode) {
 			/* Shadow lift: Reveal shadow details in movies without crushing blacks */
 			double Y_lifted = pow(Y, 0.88);
@@ -434,9 +476,16 @@ colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 			gamma_g[i] = (uint16_t)(g_out >= UINT16_MAX ? UINT16_MAX : g_out);
 			gamma_b[i] = (uint16_t)(b_out >= UINT16_MAX ? UINT16_MAX : b_out);
 		} else {
-			gamma_r[i] = F(Y, 0) * (UINT16_MAX + 1);
-			gamma_g[i] = F(Y, 1) * (UINT16_MAX + 1);
-			gamma_b[i] = F(Y, 2) * (UINT16_MAX + 1);
+			double r = pow(Y * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
+			double g = pow(Y * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
+			double b = pow(Y * setting->brightness * white_point[2], 1.0 / setting->gamma[2]);
+
+			double r_out = fmin(fmax(r, 0.0), 1.0) * (UINT16_MAX + 1);
+			double g_out = fmin(fmax(g, 0.0), 1.0) * (UINT16_MAX + 1);
+			double b_out = fmin(fmax(b, 0.0), 1.0) * (UINT16_MAX + 1);
+			gamma_r[i] = (uint16_t)(r_out >= UINT16_MAX ? UINT16_MAX : r_out);
+			gamma_g[i] = (uint16_t)(g_out >= UINT16_MAX ? UINT16_MAX : g_out);
+			gamma_b[i] = (uint16_t)(b_out >= UINT16_MAX ? UINT16_MAX : b_out);
 		}
 	}
 }
@@ -448,10 +497,33 @@ colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 	if (setting->darkroom) {
 		for (int i = 0; i < size; i++) {
 			double Y = (double)i / (size > 1 ? (size - 1) : 1);
+			if (setting->halation_tamer) {
+				Y = 0.05 + 0.81 * Y;
+			}
 			double r_val = pow(Y * setting->brightness * 0.85, 1.0 / setting->gamma[0]);
 			gamma_r[i] = (float)fmin(fmax(r_val, 0.0), 1.0);
 			gamma_g[i] = 0.0f;
 			gamma_b[i] = 0.0f;
+		}
+		return;
+	}
+
+	if (setting->reading_mode) {
+		const double paper_wr = 1.00;
+		const double paper_wg = 0.94;
+		const double paper_wb = 0.82;
+		for (int i = 0; i < size; i++) {
+			double Y = (double)gamma_r[i];
+			if (setting->halation_tamer) {
+				Y = 0.05 + 0.81 * Y;
+			}
+			double r = pow(Y * setting->brightness * paper_wr, 1.0 / setting->gamma[0]);
+			double g = pow(Y * setting->brightness * paper_wg, 1.0 / setting->gamma[1]);
+			double b = pow(Y * setting->brightness * paper_wb, 1.0 / setting->gamma[2]);
+
+			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
+			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
+			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);
 		}
 		return;
 	}
@@ -468,8 +540,17 @@ colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 	interpolate_color(alpha, &blackbody_color[temp_index],
 			  &blackbody_color[temp_index+3], white_point);
 
+	if (setting->melanopic_notch) {
+		white_point[2] *= 0.65f;
+		white_point[1] *= 0.96f;
+	}
+
 	for (int i = 0; i < size; i++) {
 		double Y = (double)gamma_r[i];
+		if (setting->halation_tamer) {
+			Y = 0.05 + 0.81 * Y;
+		}
+
 		if (setting->movie_mode) {
 			double Y_lifted = pow(Y, 0.88);
 			float sky_blue = white_point[2] + (1.0f - white_point[2]) * (float)(pow(Y, 1.8) * 0.45f);
@@ -494,9 +575,13 @@ colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
 			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);
 		} else {
-			gamma_r[i] = F(Y, 0);
-			gamma_g[i] = F(Y, 1);
-			gamma_b[i] = F(Y, 2);
+			double r = pow(Y * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
+			double g = pow(Y * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
+			double b = pow(Y * setting->brightness * white_point[2], 1.0 / setting->gamma[2]);
+
+			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
+			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
+			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);
 		}
 	}
 }

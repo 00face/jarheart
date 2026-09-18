@@ -187,7 +187,8 @@ ipc_dispatch_command(
 			state->current_setting.temperature,
 			state->disabled || is_paused,
 			state->darkroom,
-			state->sunlight_mode);
+			state->sunlight_mode,
+			state->reading_mode);
 
 		if (arg != NULL && (strcasecmp(arg, "--json") == 0 || strcasecmp(arg, "-j") == 0 || strcasecmp(arg, "json") == 0)) {
 			snprintf(response_buf, response_buf_size,
@@ -206,6 +207,16 @@ ipc_dispatch_command(
 				 "  \"movie_mode\": %s,\n"
 				 "  \"movie_remaining\": %ld,\n"
 				 "  \"sunlight_mode\": %s,\n"
+				 "  \"reading_mode\": %s,\n"
+				 "  \"halation_tamer\": %s,\n"
+				 "  \"melanopic_notch\": %s,\n"
+				 "  \"pwm_free\": %s,\n"
+				 "  \"strain_tracker\": %s,\n"
+				 "  \"vignette_mode\": %s,\n"
+				 "  \"total_active_seconds\": %llu,\n"
+				 "  \"restorative_seconds\": %llu,\n"
+				 "  \"hev_joules_saved\": %.2f,\n"
+				 "  \"pacer_breaks_completed\": %d,\n"
 				 "  \"myopia_protect\": %s,\n"
 				 "  \"couple_brightness\": %s,\n"
 				 "  \"ambient_balancer\": %s,\n"
@@ -235,6 +246,16 @@ ipc_dispatch_command(
 				 state->movie_mode ? "true" : "false",
 				 movie_remaining,
 				 state->sunlight_mode ? "true" : "false",
+				 state->reading_mode ? "true" : "false",
+				 state->halation_tamer ? "true" : "false",
+				 state->melanopic_notch ? "true" : "false",
+				 state->pwm_free ? "true" : "false",
+				 state->strain_tracker ? "true" : "false",
+				 state->vignette_mode ? "true" : "false",
+				 (unsigned long long)state->total_active_seconds,
+				 (unsigned long long)state->restorative_seconds,
+				 state->hev_joules_saved,
+				 state->pacer_breaks_completed,
 				 state->myopia_protect ? "true" : "false",
 				 state->couple_brightness ? "true" : "false",
 				 state->ambient_balancer ? "true" : "false",
@@ -289,6 +310,12 @@ ipc_dispatch_command(
 			 "Pause remaining: %lds\n"
 			 "Darkroom: %s\n"
 			 "Movie mode: %s\n"
+			 "Sunlight mode: %s\n"
+			 "Reading mode: %s\n"
+			 "Halation tamer: %s\n"
+			 "Melanopic notch: %s\n"
+			 "PWM-Free: %s\n"
+			 "Strain tracker: %s\n"
 			 "Myopia protect: %s\n"
 			 "Coupled brightness: %s\n"
 			 "Ambient balancer: %s\n"
@@ -309,6 +336,12 @@ ipc_dispatch_command(
 			 remaining,
 			 state->darkroom ? "Active (monochrome red)" : "Inactive",
 			 movie_str,
+			 state->sunlight_mode ? "Enabled (anti-glare toe-lift)" : "Disabled",
+			 state->reading_mode ? "Active (monochrome parchment)" : "Inactive",
+			 state->halation_tamer ? "Enabled (contrast compressed)" : "Disabled",
+			 state->melanopic_notch ? "Enabled (480nm cyan notch)" : "Disabled",
+			 state->pwm_free ? "Enabled (100% DC backlight)" : "Disabled",
+			 state->strain_tracker ? "Enabled (input velocity monitor)" : "Disabled",
 			 state->myopia_protect ? "Active (2850K, 60% lum)" : "Inactive",
 			 state->couple_brightness ? "Enabled" : "Disabled",
 			 state->ambient_balancer ? "Enabled (dynamic lux matching)" : "Disabled",
@@ -477,6 +510,121 @@ ipc_dispatch_command(
 		snprintf(response_buf, response_buf_size,
 			 "Sunlight / Outdoor mode: %s (7500K clear-sky spectrum, glare-crushing gamma toe-lift, 100%% backlight)\n",
 			 state->sunlight_mode ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "reading") == 0 || strcasecmp(cmd, "epaper") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->reading_mode = 0;
+			if (strcmp(state->current_preset, "E-Paper") == 0) state->current_preset[0] = '\0';
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->reading_mode = 1;
+			state->darkroom = 0;
+			state->sunlight_mode = 0;
+			state->movie_mode = 0;
+			state->disabled = 0;
+			state->pause_until = 0;
+			snprintf(state->current_preset, sizeof(state->current_preset), "E-Paper");
+		} else {
+			state->reading_mode = !state->reading_mode;
+			if (state->reading_mode) {
+				state->darkroom = 0;
+				state->sunlight_mode = 0;
+				state->movie_mode = 0;
+				state->disabled = 0;
+				state->pause_until = 0;
+				snprintf(state->current_preset, sizeof(state->current_preset), "E-Paper");
+			} else {
+				if (strcmp(state->current_preset, "E-Paper") == 0) state->current_preset[0] = '\0';
+			}
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "E-Paper Reading Mode: %s (monochromatic warm parchment, zero chromatic aberration)\n",
+			 state->reading_mode ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "halation") == 0 || strcasecmp(cmd, "soft-contrast") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->halation_tamer = 0;
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->halation_tamer = 1;
+		} else {
+			state->halation_tamer = !state->halation_tamer;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Astigmatism Halation Tamer: %s (muted contrast range: 5%% black floor, 86%% peak white)\n",
+			 state->halation_tamer ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "notch") == 0 || strcasecmp(cmd, "melanopic") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->melanopic_notch = 0;
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->melanopic_notch = 1;
+		} else {
+			state->melanopic_notch = !state->melanopic_notch;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "480nm Melanopic Cyan Notch Filter: %s (selective ipRGC circadian attenuation)\n",
+			 state->melanopic_notch ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "pwm-free") == 0 || strcasecmp(cmd, "antiflicker") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->pwm_free = 0;
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->pwm_free = 1;
+			checks_ensure_pwm_free();
+		} else {
+			state->pwm_free = !state->pwm_free;
+			if (state->pwm_free) checks_ensure_pwm_free();
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "PWM-Free Dimming Protocol: %s (100%% DC backlight, pure 16-bit gamma dimming)\n",
+			 state->pwm_free ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "strain") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->strain_tracker = 0;
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->strain_tracker = 1;
+		} else {
+			state->strain_tracker = !state->strain_tracker;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Input Strain & Adaptive Blink Pacer: %s (monitors typing velocity for dry eye prevention)\n",
+			 state->strain_tracker ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "vignette") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->vignette_mode = 0;
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->vignette_mode = 1;
+		} else {
+			state->vignette_mode = !state->vignette_mode;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Peripheral Glare Shield: %s (ultrawide ambient edge falloff)\n",
+			 state->vignette_mode ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "stats") == 0 || strcasecmp(cmd, "telemetry") == 0) {
+		double tera_photons = (state->hev_joules_saved * 2.26e18) / 1e12;
+		snprintf(response_buf, response_buf_size,
+			 "Ocular Ergonomics Telemetry:\n"
+			 "  Active Exposure:       %llu hours, %llu mins\n"
+			 "  Restorative (<3400K):  %llu hours, %llu mins\n"
+			 "  HEV Blue Filtered:     %.2f Joules (%.1f Tera-photons)\n"
+			 "  Pacer Breaks Taken:    %d sessions\n"
+			 "  PWM-Free Protection:   %s\n",
+			 (unsigned long long)(state->total_active_seconds / 3600),
+			 (unsigned long long)((state->total_active_seconds % 3600) / 60),
+			 (unsigned long long)(state->restorative_seconds / 3600),
+			 (unsigned long long)((state->restorative_seconds % 3600) / 60),
+			 state->hev_joules_saved,
+			 tera_photons,
+			 state->pacer_breaks_completed,
+			 state->pwm_free ? "Active (Zero Flicker)" : "Standard");
 		return 0;
 	} else if (strcasecmp(cmd, "couple-brightness") == 0 || strcasecmp(cmd, "couple") == 0) {
 		if (strcasecmp(arg, "off") == 0) {
@@ -675,6 +823,10 @@ ipc_dispatch_command(
 		state->movie_mode = 0;
 		state->movie_mode_until = 0;
 		state->sunlight_mode = 0;
+		state->reading_mode = 0;
+		state->halation_tamer = 0;
+		state->melanopic_notch = 0;
+		state->vignette_mode = 0;
 		state->current_preset[0] = '\0';
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size, "Status: Normal\n");
@@ -695,6 +847,13 @@ ipc_dispatch_command(
 			 "  darkroom [on|off]Deep monochrome red for stargazing & darkrooms\n"
 			 "  movie [TIME|off] Movie Mode (2.5h duration, warm tone, preserves sky & shadows)\n"
 			 "  sunlight [on|off]Sunlight / Outdoor Mode (7500K, glare-crushing gamma toe-lift)\n"
+			 "  reading [on|off] E-Paper reading mode (monochrome parchment, 0 chromatic aberration)\n"
+			 "  halation [on|off]Astigmatism halation tamer (muted contrast: 5%% black, 86%% white)\n"
+			 "  notch [on|off]   480nm melanopic cyan notch filter (selective ipRGC attenuation)\n"
+			 "  pwm-free [on|off]PWM-free protocol (100%% DC hardware backlight, gamma dimming)\n"
+			 "  strain [on|off]  Input-velocity strain monitor & adaptive tear-film blink pacer\n"
+			 "  vignette [on|off]Peripheral glare shield (ultrawide ambient edge falloff)\n"
+			 "  stats            Ocular ergonomics telemetry & HEV blue photon energy saved\n"
 			 "  myopia-protect   Myopia protection mode (2850K, 60%% luminance limit)\n"
 			 "  couple-brightness Couple screen brightness with Kelvin temperature (Kruithof)\n"
 			 "  ambient [on|off] Ambient contrast balancer (scales brightness to room lux)\n"
@@ -974,7 +1133,10 @@ ipc_client_dispatch(int argc, char *argv[])
 		"on", "off", "enable", "disable", "set", "reset",
 		"darkroom", "movie", "preset", "presets", "schedule",
 		"check", "weather",
-		"myopia-protect", "myopia", "reading",
+		"myopia-protect", "myopia", "reading", "epaper",
+		"halation", "soft-contrast", "notch", "melanopic",
+		"pwm-free", "antiflicker", "strain", "vignette",
+		"stats", "telemetry",
 		"couple-brightness", "couple",
 		"ambient", "contrast", "pacer",
 		"sunlight", "outdoor",

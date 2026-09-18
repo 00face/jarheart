@@ -49,6 +49,9 @@ typedef struct {
 	int darkroom;
 	int movie_mode;
 	int sunlight_mode;
+	int reading_mode;
+	int halation_tamer;
+	int melanopic_notch;
 } color_setting_t;
 
 /* Program modes. */

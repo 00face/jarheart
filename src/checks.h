@@ -21,6 +21,7 @@
 #define JARHEART_CHECKS_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <time.h>
 #include "redshift.h"
 
@@ -54,5 +55,11 @@ int checks_check_timezone(checks_result_t *result);
 
 /* Run all checks and format human-readable output into buf */
 int checks_format_summary(checks_result_t *result, char *buf, size_t buf_size);
+
+/* Ensure hardware backlight is at max to eliminate PWM flicker */
+int checks_ensure_pwm_free(void);
+
+/* Get total input activity count (keyboard/mouse interrupts) */
+uint64_t checks_get_input_interrupts(void);
 
 #endif /* ! JARHEART_CHECKS_H */

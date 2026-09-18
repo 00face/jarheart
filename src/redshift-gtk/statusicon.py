@@ -33,7 +33,8 @@ import gettext
 import gi
 gi.require_version('Gtk', '3.0')
 
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, GLib, Gdk
+import cairo
 
 try:
     gi.require_version('AyatanaAppIndicator3', '0.1')
@@ -59,12 +60,14 @@ except (ImportError, ValueError):
 
 _ = gettext.gettext
 
-def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=False):
+def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=False, reading=False):
     """Map color temperature and mode to the closest heart emoji and themed SVG icon."""
     if inhibited:
         return "🖤", "jarheart-status-off"
     if darkroom:
         return "❤️", "jarheart-status-darkroom"
+    if reading:
+        return "🤎", "jarheart-status-ember"
     if sunlight or temp >= 7200:
         return "💙", "jarheart-status-sunlight"
     if temp <= 1600:
@@ -81,6 +84,78 @@ def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=F
         return "🤍", "jarheart-status-daylight"
 
 
+class PeripheralGlareOverlay(Gtk.Window):
+    """Transparent click-through ambient vignette window for reducing peripheral glare."""
+
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_title("Jarheart Peripheral Glare Shield")
+        self.set_decorated(False)
+        self.set_keep_above(True)
+        self.set_accept_focus(False)
+        self.set_focus_on_map(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_app_paintable(True)
+
+        screen = self.get_screen()
+        visual = screen.get_rgba_visual()
+        if visual is not None and screen.is_composited():
+            self.set_visual(visual)
+
+        self.connect("draw", self.on_draw)
+        self.connect("realize", self.on_realize)
+        self.connect("size-allocate", self.on_size_allocate)
+
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() if display and hasattr(display, 'get_primary_monitor') else None
+        if monitor:
+            geom = monitor.get_geometry()
+            self.set_default_size(geom.width, geom.height)
+            self.move(geom.x, geom.y)
+        else:
+            self.set_default_size(screen.get_width(), screen.get_height())
+            self.move(0, 0)
+
+    def on_realize(self, widget):
+        self._make_click_through()
+
+    def on_size_allocate(self, widget, allocation):
+        self._make_click_through()
+
+    def _make_click_through(self):
+        window = self.get_window()
+        if window:
+            region = cairo.Region()
+            window.input_shape_combine_region(region, 0, 0)
+
+    def on_draw(self, widget, cr):
+        if not self.get_screen().is_composited():
+            return False
+        alloc = self.get_allocation()
+        w, h = alloc.width, alloc.height
+
+        # Clear background so alpha channel is fully respected
+        cr.set_operator(cairo.OPERATOR_CLEAR)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+
+        # Smooth radial gradient: center is completely clear (alpha 0.0),
+        # edges fade smoothly to warm ambient charcoal shading
+        cx, cy = w / 2.0, h / 2.0
+        r_inner = min(w, h) * 0.36
+        r_outer = max(w, h) * 0.72
+
+        pat = cairo.RadialGradient(cx, cy, r_inner, cx, cy, r_outer)
+        pat.add_color_stop_rgba(0.0, 0.08, 0.06, 0.04, 0.0)
+        pat.add_color_stop_rgba(0.6, 0.08, 0.06, 0.04, 0.22)
+        pat.add_color_stop_rgba(1.0, 0.04, 0.03, 0.02, 0.55)
+
+        cr.set_source(pat)
+        cr.paint()
+        return False
+
+
 class RedshiftStatusIcon(object):
     """The status icon tracking the RedshiftController."""
 
@@ -88,6 +163,7 @@ class RedshiftStatusIcon(object):
         """Creates a new instance of the status icon."""
 
         self._controller = controller
+        self.vignette_overlay = None
 
         self.icon_theme = Gtk.IconTheme.get_default()
         icon_name = 'jarheart-status-on-symbolic'
@@ -148,6 +224,31 @@ class RedshiftStatusIcon(object):
         self.sunlight_item = Gtk.CheckMenuItem.new_with_label(_('☀️ Sunlight Mode (Anti-Glare Boost)'))
         self.sunlight_item.connect('toggled', self.sunlight_toggle_cb)
         self.status_menu.append(self.sunlight_item)
+
+        # Add E-Paper Reading Mode action
+        self.reading_item = Gtk.CheckMenuItem.new_with_label(_('📖 E-Paper Reading Mode (Monochrome)'))
+        self.reading_item.connect('toggled', self.reading_toggle_cb)
+        self.status_menu.append(self.reading_item)
+
+        # Add Astigmatism Halation Tamer action
+        self.halation_item = Gtk.CheckMenuItem.new_with_label(_('👓 Astigmatism Halation Tamer'))
+        self.halation_item.connect('toggled', self.halation_toggle_cb)
+        self.status_menu.append(self.halation_item)
+
+        # Add Melanopic Cyan Notch action
+        self.notch_item = Gtk.CheckMenuItem.new_with_label(_('🧬 Melanopic Cyan Notch (480nm)'))
+        self.notch_item.connect('toggled', self.notch_toggle_cb)
+        self.status_menu.append(self.notch_item)
+
+        # Add PWM-Free Dimming action
+        self.pwm_item = Gtk.CheckMenuItem.new_with_label(_('⚡ PWM-Free Software Dimming'))
+        self.pwm_item.connect('toggled', self.pwm_toggle_cb)
+        self.status_menu.append(self.pwm_item)
+
+        # Add Peripheral Glare Shield action
+        self.vignette_item = Gtk.CheckMenuItem.new_with_label(_('🛡️ Peripheral Glare Shield (Vignette)'))
+        self.vignette_item.connect('toggled', self.vignette_toggle_cb)
+        self.status_menu.append(self.vignette_item)
 
         # Add Presets submenu
         presets_menu_item = Gtk.MenuItem.new_with_label(_('Presets'))
@@ -408,6 +509,49 @@ class RedshiftStatusIcon(object):
             self.send_ipc('sunlight off')
         self.update_status_icon()
 
+    def _sync_vignette_overlay(self, enable):
+        if enable:
+            if self.vignette_overlay is None:
+                self.vignette_overlay = PeripheralGlareOverlay()
+                self.vignette_overlay.show_all()
+        else:
+            if self.vignette_overlay is not None:
+                self.vignette_overlay.destroy()
+                self.vignette_overlay = None
+
+    def reading_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('reading on')
+        else:
+            self.send_ipc('reading off')
+        self.update_status_icon()
+
+    def halation_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('halation on')
+        else:
+            self.send_ipc('halation off')
+
+    def notch_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('notch on')
+        else:
+            self.send_ipc('notch off')
+
+    def pwm_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('pwm-free on')
+        else:
+            self.send_ipc('pwm-free off')
+
+    def vignette_toggle_cb(self, widget):
+        active = widget.get_active()
+        if active:
+            self.send_ipc('vignette on')
+        else:
+            self.send_ipc('vignette off')
+        self._sync_vignette_overlay(active)
+
     def pacer_cb(self, widget, mode):
         self.send_ipc('pacer ' + mode)
 
@@ -465,6 +609,28 @@ class RedshiftStatusIcon(object):
                 self.sunlight_item.handler_block_by_func(self.sunlight_toggle_cb)
                 self.sunlight_item.set_active(_bool(st.get('sunlight_mode')))
                 self.sunlight_item.handler_unblock_by_func(self.sunlight_toggle_cb)
+
+                self.reading_item.handler_block_by_func(self.reading_toggle_cb)
+                self.reading_item.set_active(_bool(st.get('reading_mode')))
+                self.reading_item.handler_unblock_by_func(self.reading_toggle_cb)
+
+                self.halation_item.handler_block_by_func(self.halation_toggle_cb)
+                self.halation_item.set_active(_bool(st.get('halation_tamer')))
+                self.halation_item.handler_unblock_by_func(self.halation_toggle_cb)
+
+                self.notch_item.handler_block_by_func(self.notch_toggle_cb)
+                self.notch_item.set_active(_bool(st.get('melanopic_notch')))
+                self.notch_item.handler_unblock_by_func(self.notch_toggle_cb)
+
+                self.pwm_item.handler_block_by_func(self.pwm_toggle_cb)
+                self.pwm_item.set_active(_bool(st.get('pwm_free')))
+                self.pwm_item.handler_unblock_by_func(self.pwm_toggle_cb)
+
+                self.vignette_item.handler_block_by_func(self.vignette_toggle_cb)
+                vignette_active = _bool(st.get('vignette_mode') or st.get('peripheral_vignette'))
+                self.vignette_item.set_active(vignette_active)
+                self.vignette_item.handler_unblock_by_func(self.vignette_toggle_cb)
+                self._sync_vignette_overlay(vignette_active)
             except Exception:
                 pass
 
@@ -517,6 +683,7 @@ class RedshiftStatusIcon(object):
         darkroom = False
         movie = False
         sunlight = False
+        reading = False
         raw = self.send_ipc('status -j')
         if raw:
             try:
@@ -524,11 +691,14 @@ class RedshiftStatusIcon(object):
                 darkroom = st.get('darkroom') in (True, 'true', 1, '1')
                 movie = st.get('movie_mode') in (True, 'true', 1, '1')
                 sunlight = st.get('sunlight_mode') in (True, 'true', 1, '1')
+                reading = st.get('reading_mode') in (True, 'true', 1, '1')
+                vignette = (st.get('vignette_mode') or st.get('peripheral_vignette')) in (True, 'true', 1, '1')
+                self._sync_vignette_overlay(vignette)
                 temp = st.get('temperature', temp)
             except Exception:
                 pass
 
-        emoji, icon_name = get_heart_for_state(temp, inhibited, darkroom, movie, sunlight)
+        emoji, icon_name = get_heart_for_state(temp, inhibited, darkroom, movie, sunlight, reading)
 
         # Fallback to base icon if specific temperature icon is missing
         if not self.icon_theme.has_icon(icon_name):
@@ -622,6 +792,9 @@ class RedshiftStatusIcon(object):
             self.status_icon.set_visible(False)
         if self.settings_dialog:
             self.settings_dialog.destroy()
+        if self.vignette_overlay:
+            self.vignette_overlay.destroy()
+            self.vignette_overlay = None
         self.info_dialog.destroy()
         self._controller.terminate_child()
         return False

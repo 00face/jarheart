@@ -461,6 +461,156 @@ class SettingsDialog(Gtk.Window):
         card_sun.pack_start(self.sunlight_switch, False, False, 0)
         box.pack_start(card_sun, False, False, 0)
 
+        # E-Paper Reading Mode Card
+        card_read = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_read.get_style_context().add_class('card-box')
+        v_read = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_read.set_hexpand(True)
+        lbl_read = Gtk.Label(label=_("📖 E-Paper / Monochromatic Reading Mode"))
+        lbl_read.get_style_context().add_class('card-title')
+        lbl_read.set_xalign(0.0)
+        desc_read = Gtk.Label(label=_(
+            "Renders UI and text in warm parchment monochrome, eliminating ocular chromatic aberration.\n"
+            "Prevents ciliary muscle accommodation micro-strain during heavy code review and reading."
+        ))
+        desc_read.get_style_context().add_class('card-desc')
+        desc_read.set_xalign(0.0)
+        desc_read.set_line_wrap(True)
+        v_read.pack_start(lbl_read, False, False, 0)
+        v_read.pack_start(desc_read, False, False, 0)
+        card_read.pack_start(v_read, True, True, 0)
+
+        self.reading_switch = Gtk.Switch()
+        self.reading_switch.set_valign(Gtk.Align.CENTER)
+        self.reading_switch.connect('notify::active', self.on_reading_toggled)
+        card_read.pack_start(self.reading_switch, False, False, 0)
+        box.pack_start(card_read, False, False, 0)
+
+        # Astigmatism Halation Tamer Card
+        card_hal = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_hal.get_style_context().add_class('card-box')
+        v_hal = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_hal.set_hexpand(True)
+        lbl_hal = Gtk.Label(label=_("👓 Astigmatism & Halation Tamer (Soft Contrast)"))
+        lbl_hal.get_style_context().add_class('card-title')
+        lbl_hal.set_xalign(0.0)
+        desc_hal = Gtk.Label(label=_(
+            "Compresses dynamic range: lifts black floor to 5% charcoal and tames peak whites to 86%.\n"
+            "Prevents pupil dilation spherical aberrations (glowing/blurring letters) in dark rooms."
+        ))
+        desc_hal.get_style_context().add_class('card-desc')
+        desc_hal.set_xalign(0.0)
+        desc_hal.set_line_wrap(True)
+        v_hal.pack_start(lbl_hal, False, False, 0)
+        v_hal.pack_start(desc_hal, False, False, 0)
+        card_hal.pack_start(v_hal, True, True, 0)
+
+        self.halation_switch = Gtk.Switch()
+        self.halation_switch.set_valign(Gtk.Align.CENTER)
+        self.halation_switch.connect('notify::active', self.on_halation_toggled)
+        card_hal.pack_start(self.halation_switch, False, False, 0)
+        box.pack_start(card_hal, False, False, 0)
+
+        # 480nm Melanopic Cyan Notch Filter Card
+        card_notch = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_notch.get_style_context().add_class('card-box')
+        v_notch = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_notch.set_hexpand(True)
+        lbl_notch = Gtk.Label(label=_("🧬 480nm Melanopic Cyan Notch Filter"))
+        lbl_notch.get_style_context().add_class('card-title')
+        lbl_notch.set_xalign(0.0)
+        desc_notch = Gtk.Label(label=_(
+            "Selectively notches the 460nm-490nm cyan band driving ipRGC melatonin suppression.\n"
+            "Preserves deep indigo and rich greens for superior visual discrimination and circadian protection."
+        ))
+        desc_notch.get_style_context().add_class('card-desc')
+        desc_notch.set_xalign(0.0)
+        desc_notch.set_line_wrap(True)
+        v_notch.pack_start(lbl_notch, False, False, 0)
+        v_notch.pack_start(desc_notch, False, False, 0)
+        card_notch.pack_start(v_notch, True, True, 0)
+
+        self.notch_switch = Gtk.Switch()
+        self.notch_switch.set_valign(Gtk.Align.CENTER)
+        self.notch_switch.connect('notify::active', self.on_notch_toggled)
+        card_notch.pack_start(self.notch_switch, False, False, 0)
+        box.pack_start(card_notch, False, False, 0)
+
+        # PWM-Free Protocol Card
+        card_pwm = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_pwm.get_style_context().add_class('card-box')
+        v_pwm = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_pwm.set_hexpand(True)
+        lbl_pwm = Gtk.Label(label=_("⚡ PWM-Free Zero-Flicker Dimming"))
+        lbl_pwm.get_style_context().add_class('card-title')
+        lbl_pwm.set_xalign(0.0)
+        desc_pwm = Gtk.Label(label=_(
+            "Locks hardware LED backlight at 100% (constant DC mode) to eliminate PWM strobing.\n"
+            "Performs deep display dimming entirely in 16-bit software gamma to eliminate flicker headaches."
+        ))
+        desc_pwm.get_style_context().add_class('card-desc')
+        desc_pwm.set_xalign(0.0)
+        desc_pwm.set_line_wrap(True)
+        v_pwm.pack_start(lbl_pwm, False, False, 0)
+        v_pwm.pack_start(desc_pwm, False, False, 0)
+        card_pwm.pack_start(v_pwm, True, True, 0)
+
+        self.pwm_switch = Gtk.Switch()
+        self.pwm_switch.set_valign(Gtk.Align.CENTER)
+        self.pwm_switch.connect('notify::active', self.on_pwm_toggled)
+        card_pwm.pack_start(self.pwm_switch, False, False, 0)
+        box.pack_start(card_pwm, False, False, 0)
+
+        # Input Strain Monitor Card
+        card_str = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_str.get_style_context().add_class('card-box')
+        v_str = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_str.set_hexpand(True)
+        lbl_str = Gtk.Label(label=_("⏱️ Input-Velocity Strain & Blink Pacer"))
+        lbl_str.get_style_context().add_class('card-title')
+        lbl_str.set_xalign(0.0)
+        desc_str = Gtk.Label(label=_(
+            "Monitors continuous typing and cursor velocity to detect sustained near-work focus.\n"
+            "Prompts adaptive tear-film restoration micro-breaks when typing continuously for >30m."
+        ))
+        desc_str.get_style_context().add_class('card-desc')
+        desc_str.set_xalign(0.0)
+        desc_str.set_line_wrap(True)
+        v_str.pack_start(lbl_str, False, False, 0)
+        v_str.pack_start(desc_str, False, False, 0)
+        card_str.pack_start(v_str, True, True, 0)
+
+        self.strain_switch = Gtk.Switch()
+        self.strain_switch.set_valign(Gtk.Align.CENTER)
+        self.strain_switch.connect('notify::active', self.on_strain_toggled)
+        card_str.pack_start(self.strain_switch, False, False, 0)
+        box.pack_start(card_str, False, False, 0)
+
+        # Peripheral Glare Shield (Vignette) Card
+        card_vig = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_vig.get_style_context().add_class('card-box')
+        v_vig = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_vig.set_hexpand(True)
+        lbl_vig = Gtk.Label(label=_("🛡️ Peripheral Glare Shield (Vignette)"))
+        lbl_vig.get_style_context().add_class('card-title')
+        lbl_vig.set_xalign(0.0)
+        desc_vig = Gtk.Label(label=_(
+            "Applies a transparent click-through ambient edge falloff across ultrawide displays.\n"
+            "Reduces peripheral rod photoreceptor stimulation and channels focus to your center window."
+        ))
+        desc_vig.get_style_context().add_class('card-desc')
+        desc_vig.set_xalign(0.0)
+        desc_vig.set_line_wrap(True)
+        v_vig.pack_start(lbl_vig, False, False, 0)
+        v_vig.pack_start(desc_vig, False, False, 0)
+        card_vig.pack_start(v_vig, True, True, 0)
+
+        self.vignette_switch = Gtk.Switch()
+        self.vignette_switch.set_valign(Gtk.Align.CENTER)
+        self.vignette_switch.connect('notify::active', self.on_vignette_toggled)
+        card_vig.pack_start(self.vignette_switch, False, False, 0)
+        box.pack_start(card_vig, False, False, 0)
+
         # Color-Critical Pause Quick Action
         card5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         card5.get_style_context().add_class('card-box')
@@ -584,6 +734,38 @@ class SettingsDialog(Gtk.Window):
         card1.pack_start(btn_refresh, False, False, 0)
         box.pack_start(card1, False, False, 0)
 
+        # Ocular Ergonomics Telemetry Card
+        card2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card2.get_style_context().add_class('card-box')
+        lbl2 = Gtk.Label(label=_("🩺 Ocular Health & HEV Blue-Photon Scorecard"))
+        lbl2.get_style_context().add_class('card-title')
+        lbl2.set_xalign(0.0)
+        card2.pack_start(lbl2, False, False, 0)
+
+        self.telemetry_labels = {}
+        for key, title in [
+            ('active_time', _("Total Active Screen Exposure")),
+            ('restorative_time', _("Restorative Circadian Time (<3400K)")),
+            ('hev_filtered', _("Filtered High-Energy Blue Light")),
+            ('pacer_breaks', _("20-20-20 Tear-Film Replenishment Breaks")),
+            ('pwm_status', _("PWM Flicker-Free DC Protection"))
+        ]:
+            h = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            t = Gtk.Label()
+            t.set_markup(f"<b>{GLib.markup_escape_text(title)}:</b>")
+            t.set_xalign(0.0)
+            t.set_size_request(220, -1)
+            v = Gtk.Label(label="—")
+            v.get_style_context().add_class('diag-value')
+            v.set_xalign(0.0)
+            v.set_hexpand(True)
+            h.pack_start(t, False, False, 0)
+            h.pack_start(v, True, True, 0)
+            card2.pack_start(h, False, False, 0)
+            self.telemetry_labels[key] = v
+
+        box.pack_start(card2, False, False, 0)
+
         self.stack.add_titled(scrolled, "diagnostics", _("Diagnostics & HW"))
 
     # --- Callbacks & IPC Dispatch ---
@@ -615,6 +797,30 @@ class SettingsDialog(Gtk.Window):
         val = switch.get_active()
         self.send_ipc(f'sunlight {"on" if val else "off"}')
 
+    def on_reading_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'reading {"on" if val else "off"}')
+
+    def on_halation_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'halation {"on" if val else "off"}')
+
+    def on_notch_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'notch {"on" if val else "off"}')
+
+    def on_pwm_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'pwm-free {"on" if val else "off"}')
+
+    def on_strain_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'strain {"on" if val else "off"}')
+
+    def on_vignette_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'vignette {"on" if val else "off"}')
+
     def on_schedule_changed(self, combo):
         active_id = combo.get_active_id()
         if active_id == 'solar':
@@ -645,6 +851,12 @@ couple-brightness={'true' if self.couple_switch.get_active() else 'false'}
 myopia-protect={'true' if self.myopia_switch.get_active() else 'false'}
 ambient-balancer={'true' if self.ambient_switch.get_active() else 'false'}
 sunlight-mode={'true' if self.sunlight_switch.get_active() else 'false'}
+reading-mode={'true' if self.reading_switch.get_active() else 'false'}
+halation-tamer={'true' if self.halation_switch.get_active() else 'false'}
+melanopic-notch={'true' if self.notch_switch.get_active() else 'false'}
+pwm-free={'true' if self.pwm_switch.get_active() else 'false'}
+strain-tracker={'true' if self.strain_switch.get_active() else 'false'}
+vignette-mode={'true' if self.vignette_switch.get_active() else 'false'}
 pacer-interval={1200 if self.pacer_switch.get_active() else 0}
 adjustment-method=randr
 location-provider=manual
@@ -733,6 +945,44 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         self.pacer_switch.handler_block_by_func(self.on_pacer_toggled)
         self.pacer_switch.set_active(int(st.get('pacer_interval', 0)) > 0)
         self.pacer_switch.handler_unblock_by_func(self.on_pacer_toggled)
+
+        self.reading_switch.handler_block_by_func(self.on_reading_toggled)
+        self.reading_switch.set_active(_bool(st.get('reading_mode')))
+        self.reading_switch.handler_unblock_by_func(self.on_reading_toggled)
+
+        self.halation_switch.handler_block_by_func(self.on_halation_toggled)
+        self.halation_switch.set_active(_bool(st.get('halation_tamer')))
+        self.halation_switch.handler_unblock_by_func(self.on_halation_toggled)
+
+        self.notch_switch.handler_block_by_func(self.on_notch_toggled)
+        self.notch_switch.set_active(_bool(st.get('melanopic_notch')))
+        self.notch_switch.handler_unblock_by_func(self.on_notch_toggled)
+
+        self.pwm_switch.handler_block_by_func(self.on_pwm_toggled)
+        self.pwm_switch.set_active(_bool(st.get('pwm_free')))
+        self.pwm_switch.handler_unblock_by_func(self.on_pwm_toggled)
+
+        self.strain_switch.handler_block_by_func(self.on_strain_toggled)
+        self.strain_switch.set_active(_bool(st.get('strain_tracker')))
+        self.strain_switch.handler_unblock_by_func(self.on_strain_toggled)
+
+        self.vignette_switch.handler_block_by_func(self.on_vignette_toggled)
+        self.vignette_switch.set_active(_bool(st.get('vignette_mode')))
+        self.vignette_switch.handler_unblock_by_func(self.on_vignette_toggled)
+
+        tot = int(st.get('total_active_seconds', 0))
+        rst = int(st.get('restorative_seconds', 0))
+        joules = float(st.get('hev_joules_saved', 0.0))
+        tera = (joules * 2.26e18) / 1e12
+        breaks = int(st.get('pacer_breaks_completed', 0))
+        pwm = _bool(st.get('pwm_free'))
+
+        if hasattr(self, 'telemetry_labels'):
+            self.telemetry_labels['active_time'].set_text(f"{tot // 3600}h {(tot % 3600) // 60}m")
+            self.telemetry_labels['restorative_time'].set_text(f"{rst // 3600}h {(rst % 3600) // 60}m")
+            self.telemetry_labels['hev_filtered'].set_text(f"{joules:.1f} Joules ({tera:.1f} Tera-photons saved)")
+            self.telemetry_labels['pacer_breaks'].set_text(f"{breaks} sessions completed")
+            self.telemetry_labels['pwm_status'].set_text("Active (100% DC Zero-Flicker)" if pwm else "Standard (OS Managed)")
 
         sched = st.get('schedule', 'solar')
         self.schedule_combo.handler_block_by_func(self.on_schedule_changed)

@@ -59,6 +59,7 @@ int poll(struct pollfd *fds, int nfds, int timeout) { abort(); return -1; }
 # define gettext(s) s
 #endif
 
+#include <stdint.h>
 #include "redshift.h"
 #include "config-ini.h"
 #include "solar.h"
@@ -770,8 +771,42 @@ run_continual_mode(const location_provider_t *provider,
 			} else if (now_epoch - ipc_state.last_pacer_time >= ipc_state.pacer_interval) {
 				ipc_state.last_pacer_time = now_epoch;
 				ipc_state.pacer_breathe = 3;
+				ipc_state.pacer_breaks_completed++;
 				send_desktop_notification("20-20-20 Ocular Rest",
 					"Look 20 feet away for 20 seconds to relax ciliary muscles and replenish tear film.");
+			}
+		}
+
+		/* Input-Velocity Strain & Adaptive Blink Pacer */
+		static uint64_t last_input_interrupts = 0;
+		static time_t strain_active_since = 0;
+		static time_t last_strain_check = 0;
+		if (ipc_state.strain_tracker && !disabled) {
+			if (now_epoch - last_strain_check >= 10) {
+				last_strain_check = now_epoch;
+				uint64_t cur_interrupts = checks_get_input_interrupts();
+				if (last_input_interrupts > 0 && cur_interrupts > last_input_interrupts) {
+					if (strain_active_since == 0) strain_active_since = now_epoch;
+					if (now_epoch - strain_active_since >= 1800) {
+						ipc_state.pacer_breathe = 3;
+						ipc_state.pacer_breaks_completed++;
+						send_desktop_notification("Tear-Film Replenishment Break",
+							"Continuous typing detected for 30m. Rest your eyes and take 10 slow, complete blinks.");
+						strain_active_since = now_epoch;
+					}
+				} else {
+					strain_active_since = 0;
+				}
+				last_input_interrupts = cur_interrupts;
+			}
+		}
+
+		/* PWM-Free Protocol: Enforce maximum hardware panel backlight */
+		static time_t last_pwm_check = 0;
+		if (ipc_state.pwm_free && !disabled) {
+			if (now_epoch - last_pwm_check >= 5) {
+				last_pwm_check = now_epoch;
+				checks_ensure_pwm_free();
 			}
 		}
 #endif
@@ -907,21 +942,31 @@ run_continual_mode(const location_provider_t *provider,
 			target_interp.darkroom = 1;
 			target_interp.movie_mode = 0;
 			target_interp.sunlight_mode = 0;
+			target_interp.reading_mode = 0;
+		} else if (ipc_state.reading_mode) {
+			target_interp.darkroom = 0;
+			target_interp.movie_mode = 0;
+			target_interp.sunlight_mode = 0;
+			target_interp.reading_mode = 1;
+			target_interp.temperature = 4000;
 		} else if (ipc_state.sunlight_mode) {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 0;
 			target_interp.sunlight_mode = 1;
+			target_interp.reading_mode = 0;
 			target_interp.temperature = 7500;
 			target_interp.brightness = 1.00f;
 		} else if (ipc_state.movie_mode) {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 1;
 			target_interp.sunlight_mode = 0;
+			target_interp.reading_mode = 0;
 			target_interp.temperature = 4200;
 		} else if (ipc_state.myopia_protect) {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 0;
 			target_interp.sunlight_mode = 0;
+			target_interp.reading_mode = 0;
 			target_interp.temperature = 2850;
 			if (target_interp.brightness > 0.60f) {
 				target_interp.brightness = 0.60f;
@@ -930,10 +975,13 @@ run_continual_mode(const location_provider_t *provider,
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 0;
 			target_interp.sunlight_mode = 0;
+			target_interp.reading_mode = 0;
 			if (ipc_state.override_temp > 0) {
 				target_interp.temperature = ipc_state.override_temp;
 			}
 		}
+		target_interp.halation_tamer = ipc_state.halation_tamer;
+		target_interp.melanopic_notch = ipc_state.melanopic_notch;
 
 		/* Coupled brightness: dynamically scale brightness along Kruithof comfort curve */
 		if (ipc_state.couple_brightness && !disabled && !ipc_state.darkroom && !ipc_state.sunlight_mode) {
@@ -973,6 +1021,28 @@ run_continual_mode(const location_provider_t *provider,
 			target_interp.brightness *= 0.85f;
 			ipc_state.pacer_breathe--;
 		}
+
+		/* Cumulative Telemetry: Track active exposure & filtered blue photon energy */
+		static time_t last_telemetry_time = 0;
+		if (!disabled) {
+			time_t delta_sec = (last_telemetry_time > 0) ? (now_epoch - last_telemetry_time) : 1;
+			if (delta_sec > 0 && delta_sec <= 60) {
+				ipc_state.total_active_seconds += (uint64_t)delta_sec;
+				if (target_interp.temperature <= 3400) {
+					ipc_state.restorative_seconds += (uint64_t)delta_sec;
+				}
+				double b_frac = ((double)target_interp.temperature / 6500.0) * target_interp.brightness;
+				if (b_frac > 1.0) b_frac = 1.0;
+				if (target_interp.darkroom) b_frac = 0.0;
+				if (target_interp.reading_mode) b_frac *= 0.82;
+				if (target_interp.melanopic_notch) b_frac *= 0.65;
+				double reduction = 1.0 - b_frac;
+				if (reduction > 0.0) {
+					ipc_state.hev_joules_saved += reduction * (double)delta_sec;
+				}
+			}
+		}
+		last_telemetry_time = now_epoch;
 #endif
 
 		if (disabled) {

@@ -195,18 +195,69 @@ int main(void)
 	       r[0], r[ramp_size - 1]);
 
 	/* Test 9: Circadian Heart Emoji Mapping */
-	assert(strcmp(colorramp_get_heart_emoji(6500, 1, 0, 0), "🖤") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(3000, 0, 1, 0), "❤️") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(7500, 0, 0, 1), "💙") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(1200, 0, 0, 0), "❤️") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(1900, 0, 0, 0), "❤️‍🔥") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(2700, 0, 0, 0), "🧡") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(3400, 0, 0, 0), "💛") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(4200, 0, 0, 0), "💛") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(5500, 0, 0, 0), "🤍") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 0, 0), "🤍") == 0);
-	assert(strcmp(colorramp_get_heart_emoji(8000, 0, 0, 0), "💙") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 1, 0, 0, 0), "🖤") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(3000, 0, 1, 0, 0), "❤️") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(4000, 0, 0, 0, 1), "🤎") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(7500, 0, 0, 1, 0), "💙") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(1200, 0, 0, 0, 0), "❤️") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(1900, 0, 0, 0, 0), "❤️‍🔥") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(2700, 0, 0, 0, 0), "🧡") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(3400, 0, 0, 0, 0), "💛") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(4200, 0, 0, 0, 0), "💛") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(5500, 0, 0, 0, 0), "🤍") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 0, 0, 0), "🤍") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(8000, 0, 0, 0, 0), "💙") == 0);
 	printf("  Circadian Heart Emoji mapping verified!\n");
+
+	/* Test 10: E-Paper / Monochromatic Reading Mode */
+	color_setting_t reading_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.reading_mode = 1
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &reading_setting);
+	/* Warm parchment: R >= G >= B */
+	assert(r[ramp_size - 1] == UINT16_MAX);
+	assert(g[ramp_size - 1] > 60000 && g[ramp_size - 1] < r[ramp_size - 1]);
+	assert(b[ramp_size - 1] > 50000 && b[ramp_size - 1] < g[ramp_size - 1]);
+	printf("  E-Paper reading mode verified: monochromatic warm parchment curve (R=%u, G=%u, B=%u)\n",
+	       r[ramp_size - 1], g[ramp_size - 1], b[ramp_size - 1]);
+
+	/* Test 11: Astigmatism Halation Tamer (Dynamic Range Compression) */
+	color_setting_t halation_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.halation_tamer = 1
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &halation_setting);
+	/* Black floor lifted to ~5%: r[0], g[0], b[0] > 2500 */
+	assert(r[0] > 2500 && r[0] < 4500);
+	assert(g[0] > 2500 && g[0] < 4500);
+	assert(b[0] > 2500 && b[0] < 4500);
+	/* White ceiling compressed to ~86%: r[max] < 58000 */
+	assert(r[ramp_size - 1] < 58000);
+	assert(g[ramp_size - 1] < 58000);
+	assert(b[ramp_size - 1] < 58000);
+	printf("  Astigmatism halation tamer verified: black floor lifted (%u) and peak glare compressed (%u)\n",
+	       r[0], r[ramp_size - 1]);
+
+	/* Test 12: 480nm Melanopic Cyan Notch Filter */
+	color_setting_t notch_setting = {
+		.temperature = 6500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.melanopic_notch = 1
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &notch_setting);
+	/* Blue channel attenuated by notch factor (~0.65 of 65535) */
+	assert(b[ramp_size - 1] < 45000 && b[ramp_size - 1] > 40000);
+	assert(r[ramp_size - 1] == UINT16_MAX);
+	printf("  Melanopic notch filter verified: cyan-blue attenuated to %u\n", b[ramp_size - 1]);
 
 	printf("test_colorramp PASSED!\n");
 	return 0;

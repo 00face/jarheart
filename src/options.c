@@ -175,6 +175,13 @@ print_help(const char *program_name)
 		"  darkroom\tToggle darkroom mode (monochrome deep red)\n"
 		"  movie [TIME]\tMovie Mode (2.5h, preserves sky & shadows)\n"
 		"  sunlight [on|off]\tSunlight / Outdoor Mode (7500K, anti-glare lift)\n"
+		"  reading [on|off]\tE-Paper Reading Mode (monochrome parchment)\n"
+		"  halation [on|off]\tAstigmatism Halation Tamer (compressed contrast)\n"
+		"  notch [on|off]\t480nm Melanopic Cyan Notch Filter\n"
+		"  pwm-free [on|off]\tPWM-Free Protocol (100% DC backlight dimming)\n"
+		"  strain [on|off]\tInput-Velocity Strain & Blink Pacer\n"
+		"  vignette [on|off]\tPeripheral Glare Shield (ultrawide edge falloff)\n"
+		"  stats\t\tShow ocular ergonomics & HEV blue energy telemetry\n"
 		"  preset NAME\tActivate Kelvin preset (candle, halogen, sunlight...)\n"
 		"  presets\tList all Kelvin presets and color temperatures\n"
 		"  schedule [TIMES] Set or view time-based or solar schedule\n"
@@ -645,6 +652,12 @@ parse_config_file_option(
 		   strcasecmp(key, "myopia-protect") == 0 ||
 		   strcasecmp(key, "ambient-balancer") == 0 ||
 		   strcasecmp(key, "sunlight-mode") == 0 ||
+		   strcasecmp(key, "reading-mode") == 0 ||
+		   strcasecmp(key, "halation-tamer") == 0 ||
+		   strcasecmp(key, "melanopic-notch") == 0 ||
+		   strcasecmp(key, "pwm-free") == 0 ||
+		   strcasecmp(key, "strain-tracker") == 0 ||
+		   strcasecmp(key, "vignette-mode") == 0 ||
 		   strcasecmp(key, "pacer-interval") == 0) {
 		/* Handled by daemon runtime state / GUI settings */
 	} else {

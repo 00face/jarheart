@@ -37,6 +37,8 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrandr.h>
 
+#include <math.h>
+
 #include "gamma-randr.h"
 #include "redshift.h"
 #include "colorramp.h"
@@ -50,6 +52,7 @@ typedef struct {
 	uint16_t *saved_r;
 	uint16_t *saved_g;
 	uint16_t *saved_b;
+	float gamma_mult[3]; /* per-CRTC R, G, B calibration multipliers (WO-013) */
 } randr_crtc_state_t;
 
 typedef struct {
@@ -63,6 +66,34 @@ typedef struct {
 	Window root;
 } randr_state_t;
 
+
+static randr_state_t *g_randr_state = NULL;
+static float g_pending_crtc_mults[8][3];
+static int g_has_pending_crtc = 0;
+
+int
+randr_set_crtc_calibration(int crtc_num, float r, float g, float b)
+{
+	if (crtc_num < 0 || crtc_num >= 8) return -1;
+	if (r < 0.1f) r = 0.1f;
+	if (r > 2.0f) r = 2.0f;
+	if (g < 0.1f) g = 0.1f;
+	if (g > 2.0f) g = 2.0f;
+	if (b < 0.1f) b = 0.1f;
+	if (b > 2.0f) b = 2.0f;
+
+	g_pending_crtc_mults[crtc_num][0] = r;
+	g_pending_crtc_mults[crtc_num][1] = g;
+	g_pending_crtc_mults[crtc_num][2] = b;
+	g_has_pending_crtc = 1;
+
+	if (g_randr_state != NULL && crtc_num < g_randr_state->crtc_count) {
+		g_randr_state->crtcs[crtc_num].gamma_mult[0] = r;
+		g_randr_state->crtcs[crtc_num].gamma_mult[1] = g;
+		g_randr_state->crtcs[crtc_num].gamma_mult[2] = b;
+	}
+	return 0;
+}
 
 static int
 randr_init(randr_state_t **state)
@@ -165,6 +196,7 @@ randr_start(randr_state_t *state)
 		XRRFreeScreenResources(res);
 		return -1;
 	}
+	g_randr_state = state;
 
 	/* Inspect and save current gamma for all active CRTCs */
 	for (int i = 0; i < res->ncrtc; i++) {
@@ -174,6 +206,9 @@ randr_start(randr_state_t *state)
 		state->crtcs[i].saved_r = NULL;
 		state->crtcs[i].saved_g = NULL;
 		state->crtcs[i].saved_b = NULL;
+		state->crtcs[i].gamma_mult[0] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][0] > 0.01f) ? g_pending_crtc_mults[i][0] : 1.0f;
+		state->crtcs[i].gamma_mult[1] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][1] > 0.01f) ? g_pending_crtc_mults[i][1] : 1.0f;
+		state->crtcs[i].gamma_mult[2] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][2] > 0.01f) ? g_pending_crtc_mults[i][2] : 1.0f;
 
 		XRRCrtcInfo *ci = XRRGetCrtcInfo(state->dpy, res, crtc);
 		if (ci == NULL) continue;
@@ -267,12 +302,18 @@ randr_refresh_crtcs(randr_state_t *state)
 				state->crtcs[j].saved_r = NULL;
 				state->crtcs[j].saved_g = NULL;
 				state->crtcs[j].saved_b = NULL;
+				new_crtcs[i].gamma_mult[0] = state->crtcs[j].gamma_mult[0];
+				new_crtcs[i].gamma_mult[1] = state->crtcs[j].gamma_mult[1];
+				new_crtcs[i].gamma_mult[2] = state->crtcs[j].gamma_mult[2];
 				found = 1;
 				break;
 			}
 		}
 
 		if (!found) {
+			new_crtcs[i].gamma_mult[0] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][0] > 0.01f) ? g_pending_crtc_mults[i][0] : 1.0f;
+			new_crtcs[i].gamma_mult[1] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][1] > 0.01f) ? g_pending_crtc_mults[i][1] : 1.0f;
+			new_crtcs[i].gamma_mult[2] = (i < 8 && g_has_pending_crtc && g_pending_crtc_mults[i][2] > 0.01f) ? g_pending_crtc_mults[i][2] : 1.0f;
 			XRRCrtcGamma *g = XRRGetCrtcGamma(state->dpy, crtc);
 			if (g != NULL) {
 				new_crtcs[i].ramp_size = size;
@@ -361,6 +402,10 @@ randr_free(randr_state_t *state)
 		XCloseDisplay(state->dpy);
 	}
 
+	if (g_randr_state == state) {
+		g_randr_state = NULL;
+	}
+
 	free(state);
 }
 
@@ -370,7 +415,8 @@ randr_print_help(FILE *f)
 	fputs(_("Adjust gamma ramps with the X RANDR extension.\n"), f);
 	fputs("\n", f);
 	fputs(_("  screen=N\t\tX screen number\n"), f);
-	fputs(_("  crtc=N\t\tX CRTC number to adjust (comma separated list)\n"), f);
+	fputs(_("  crtc=N\t\tCRTC index to adjust\n"), f);
+	fputs(_("  crtc-gamma=ID:R:G:B\tPer-CRTC RGB white point calibration multiplier (e.g. 0:1.0:0.95:1.0)\n"), f);
 	fputs("\n", f);
 }
 
@@ -428,6 +474,26 @@ randr_set_option(randr_state_t *state, const char *key, const char *value)
 		}
 	} else if (strcasecmp(key, "preserve") == 0) {
 		/* Kept for backward compatibility */
+	} else if (strcasecmp(key, "crtc-gamma") == 0 || strcasecmp(key, "crtc-calibration") == 0) {
+		int crtc_idx = -1;
+		float r_m = 1.0f, g_m = 1.0f, b_m = 1.0f;
+		if (sscanf(value, "%d:%f:%f:%f", &crtc_idx, &r_m, &g_m, &b_m) == 4) {
+			randr_set_crtc_calibration(crtc_idx, r_m, g_m, b_m);
+		} else {
+			return -1;
+		}
+	} else if (strncasecmp(key, "crtc", 4) == 0 && strstr(key, "-gamma") != NULL) {
+		int crtc_idx = -1;
+		if (sscanf(key + 4, "%d-gamma", &crtc_idx) == 1) {
+			float r_m = 1.0f, g_m = 1.0f, b_m = 1.0f;
+			if (sscanf(value, "%f:%f:%f", &r_m, &g_m, &b_m) == 3) {
+				randr_set_crtc_calibration(crtc_idx, r_m, g_m, b_m);
+			} else {
+				return -1;
+			}
+		} else {
+			return -1;
+		}
 	} else {
 		fprintf(stderr, _("Unknown method parameter: `%s'.\n"), key);
 		return -1;
@@ -462,9 +528,12 @@ randr_set_temperature_for_crtc(
 			  setting->gamma[0] >= 0.999f && setting->gamma[0] <= 1.001f &&
 			  setting->gamma[1] >= 0.999f && setting->gamma[1] <= 1.001f &&
 			  setting->gamma[2] >= 0.999f && setting->gamma[2] <= 1.001f &&
-			  !setting->darkroom && !setting->movie_mode);
+			  !setting->darkroom && !setting->movie_mode && setting->cvd_mode == CVD_NONE);
 
-	if (is_neutral) {
+	if (is_neutral &&
+	    state->crtcs[crtc_num].gamma_mult[0] == 1.0f &&
+	    state->crtcs[crtc_num].gamma_mult[1] == 1.0f &&
+	    state->crtcs[crtc_num].gamma_mult[2] == 1.0f) {
 		/* Directly write a clean linear identity ramp to revert to hardware defaults */
 		randr_fill_linear(gamma->red, gamma->green, gamma->blue, ramp_size);
 		XRRSetCrtcGamma(state->dpy, state->crtcs[crtc_num].crtc, gamma);
@@ -484,6 +553,20 @@ randr_set_temperature_for_crtc(
 	}
 
 	colorramp_fill(gamma->red, gamma->green, gamma->blue, ramp_size, setting);
+
+	/* Apply per-CRTC independent calibration (WO-013) */
+	if (state->crtcs[crtc_num].gamma_mult[0] != 1.0f ||
+	    state->crtcs[crtc_num].gamma_mult[1] != 1.0f ||
+	    state->crtcs[crtc_num].gamma_mult[2] != 1.0f) {
+		for (int k = 0; k < ramp_size; k++) {
+			double nr = (double)gamma->red[k] * state->crtcs[crtc_num].gamma_mult[0];
+			double ng = (double)gamma->green[k] * state->crtcs[crtc_num].gamma_mult[1];
+			double nb = (double)gamma->blue[k] * state->crtcs[crtc_num].gamma_mult[2];
+			gamma->red[k] = (uint16_t)fmin(UINT16_MAX, fmax(0.0, nr));
+			gamma->green[k] = (uint16_t)fmin(UINT16_MAX, fmax(0.0, ng));
+			gamma->blue[k] = (uint16_t)fmin(UINT16_MAX, fmax(0.0, nb));
+		}
+	}
 
 	XRRSetCrtcGamma(state->dpy, state->crtcs[crtc_num].crtc, gamma);
 	XRRFreeGamma(gamma);

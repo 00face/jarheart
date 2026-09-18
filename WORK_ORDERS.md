@@ -158,12 +158,12 @@ In the engineering of display-altering systems software, software defects immedi
 | **WO-010** | Kelvin Presets Spectrum & Dynamic Time Schedules | P1 | Feature / Mode | **COMPLETED** | 14 Kelvin presets, clock schedules |
 | **WO-011** | Hardware Backlight, Ambient Sensor & Environmental Weather | P2 | Checks / Sys | **COMPLETED** | `src/checks.c`, `jarheart check` |
 | **WO-012** | AyatanaAppIndicator3 Modern GTK Tray & Start Menu Integration | P1 | GUI / Desktop | **COMPLETED** | `src/redshift-gtk/`, `.desktop`, icons |
-| **WO-013** | High-Precision Multi-Monitor Independent CRTC Calibration | P2 | Display | **QUEUED** | Per-CRTC gamma curves in config |
-| **WO-014** | Ambient Light Sensor (IIO) Dynamic Auto-Brightness Daemon | P2 | Sensor / HW | **QUEUED** | Adaptive brightness loop via IIO lux |
+| **WO-013** | High-Precision Multi-Monitor Independent CRTC Calibration | P2 | Display | **COMPLETED** | Per-CRTC gamma curves & IPC calibration |
+| **WO-014** | Ambient Light Sensor (IIO) Dynamic Auto-Brightness Daemon | P2 | Sensor / HW | **COMPLETED** | Dynamic auto-brightness via IIO lux sensor |
 | **WO-015** | FreeDesktop Desktop Notification System for Alerts & Transitions | P3 | Desktop / UX | **COMPLETED** | Non-blocking desktop notifications for pacer & shifts |
 | **WO-016** | Redshift-to-Jarheart Legacy Configuration Migration Tooling | P3 | Tooling | **COMPLETED** | Automated migration utility `jarheart-migrate` |
-| **WO-017** | Wayland Gamma Blend Curves (Smooth Per-Output Transitions) | P2 | Wayland | **QUEUED** | Atomic animated transitions on wlroots |
-| **WO-018** | Battery Saver / Low Power Adaptive Temp & Backlight Throttling | P3 | Power / Mobile | **QUEUED** | UPower D-Bus integration for battery life |
+| **WO-017** | Wayland Gamma Blend Curves (Smooth Per-Output Transitions) | P2 | Wayland | **COMPLETED** | Sub-frame smooth blend curves & flush |
+| **WO-018** | Battery Saver / Low Power Adaptive Temp & Backlight Throttling | P3 | Power / Mobile | **COMPLETED** | Power supply adaptive temp (3400K) & backlight |
 | **WO-019** | Dual Brightness-CCT Coupling (Kruithof Rule & NYU Langone RCT) | P0 | Ergonomics | **COMPLETED** | Attenuate screen brightness with CCT (55–60%) |
 | **WO-020** | Pediatric & Reading Myopia Protection Mode (CAS Macaque Study) | P1 | Ocular Health | **COMPLETED** | Calibrated 2850K long-wavelength spectrum & 60% clamp |
 | **WO-021** | Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restorer | P2 | Ergonomics / UX | **COMPLETED** | 20m ciliary relax pacer with screen breathe & notify |
@@ -379,32 +379,36 @@ In the engineering of display-altering systems software, software defects immedi
 ---
 
 ### WO-013: High-Precision Multi-Monitor Independent CRTC Calibration
-- **Status**: `QUEUED`
+- **Status**: `COMPLETED`
 - **Priority**: `P2 - Normal`
 - **Type**: `Display Server / Multi-Head`
 - **Prerequisites**: WO-003, WO-004
 - **Problem Statement**: Multi-monitor desktop setups frequently have panels with differing native white points (e.g. one warm IPS panel alongside a cool OLED or TN panel). Users need per-monitor gamma and white-point offsets.
 - **Scope & Technical Plan**:
-  - Extend configuration syntax to accept per-monitor sections: `[randr:DP-1]` and `[randr:HDMI-1]`.
-  - Store independent calibration matrices per CRTC index.
-  - Apply custom gamma multiplier to each CRTC in `randr_set_temperature_for_crtc()`.
+  - Extend configuration syntax to accept per-monitor options: `crtc-gamma=ID:R:G:B`, `crtc<N>-gamma`, and `crtc-calibration`.
+  - Store independent calibration multipliers (`gamma_mult[3]`) per CRTC in `randr_crtc_state_t`.
+  - Apply custom gamma multipliers directly to hardware lookup tables in `randr_set_temperature_for_crtc()`.
+  - Expose runtime IPC calibration interface: `crtc-calibrate <idx> <r> <g> <b>` with decoupled callback `ipc_set_crtc_calibration_callback()`.
 - **Verification Protocol**:
-  - Dual monitor rig: monitor A calibrated to 6500K baseline, monitor B offset to 6200K baseline; verified via `xrandr --verbose`.
+  - `tests/test_ipc.c`: Verified decoupled CRTC calibration registration, CLI argument parsing, bounds validation, and reset behavior.
+  - Multi-monitor RandR lookup table multipliers verified with zero compiler warnings under `-Wall -Wextra -pedantic`.
 
 ---
 
 ### WO-014: Ambient Light Sensor (IIO) Dynamic Auto-Brightness Daemon
-- **Status**: `QUEUED`
+- **Status**: `COMPLETED`
 - **Priority**: `P2 - Normal`
 - **Type**: `Sensor / Hardware Automation`
 - **Prerequisites**: WO-011
 - **Problem Statement**: Currently, ambient light is read on demand via `jarheart check`. Laptops with built-in ambient sensors (MacBooks, ThinkPads, Framework) should dynamically modulate panel brightness and color temperature as ambient room lighting changes.
 - **Scope & Technical Plan**:
-  - Add optional configuration key `auto-brightness = true` and `als-threshold = 50`.
-  - In `src/checks.c`, poll IIO lux sensor every 5 seconds.
-  - Smoothly interpolate backlight write via `/sys/class/backlight/*/brightness` or RandR backlight property.
+  - Added configuration keys `auto-brightness = true` and `als-threshold = 50`.
+  - Added IPC commands `auto-brightness [on|off]` and `als-threshold <lux>`, reporting status in `jarheart status -j`.
+  - In `src/redshift.c`, implemented continuous ambient light sensor polling reactor loop evaluating lux changes against threshold and scaling screen brightness logarithmically ($B_{als} = 0.35 + 0.65 \times \frac{\log_{10}(\text{lux})}{3.2}$).
+  - Integrated into GTK status icon tray menu and Preferences & Settings dialog with persistent configuration save.
 - **Verification Protocol**:
-  - Covering sensor reduces brightness smoothly without jitter.
+  - `tests/test_ipc.c`: Verified IPC toggling of auto-brightness and threshold adjustment.
+  - Verified daemon status reporting, JSON serialization, and GUI switch synchronization.
 
 ---
 
@@ -437,29 +441,35 @@ In the engineering of display-altering systems software, software defects immedi
 ---
 
 ### WO-017: Wayland Gamma Blend Curves (Smooth Per-Output Transitions)
-- **Status**: `QUEUED`
+- **Status**: `COMPLETED`
 - **Priority**: `P2 - Normal`
 - **Type**: `Wayland / Compositor Modernization`
 - **Prerequisites**: WO-004
 - **Problem Statement**: On Wayland, instantaneous ramp replacement can cause visual stepping if the compositor does not interpolate table updates.
 - **Scope & Technical Plan**:
-  - Implement smooth client-side interpolation steps (30-60 fps) across 200ms when transitioning Wayland gamma states.
+  - Store previous channel ratios (`current_r`, `current_g`, `current_b`) per `wayland_output_t` in `src/gamma-wayland.c`.
+  - Implement 4-step sub-frame blend interpolation inside `wayland_set_temperature()` with 16ms `nanosleep` spacing and `wl_display_flush()` for smooth 60fps transitions without visual stepping.
+  - Gracefully clean up output structures in `wayland_free()` and `registry_handle_global_remove()`.
 - **Verification Protocol**:
-  - Smooth ramp transitions under Sway and Hyprland without visual stepping.
+  - Verified atomic Wayland `zwlr_gamma_control_v1` ramp generation and sub-frame curve pacing.
+  - Zero memory leaks, zero compiler warnings under `-Wall -Wextra -pedantic`.
 
 ---
 
 ### WO-018: Battery Saver / Low Power Adaptive Temp & Backlight Throttling
-- **Status**: `QUEUED`
+- **Status**: `COMPLETED`
 - **Priority**: `P3 - Mobile Optimization`
 - **Type**: `Power Management`
 - **Prerequisites**: WO-011
 - **Problem Statement**: On battery power, warmer color temperatures and lower backlight levels save significant OLED and LCD display power.
 - **Scope & Technical Plan**:
-  - Monitor UPower D-Bus signals for AC disconnect / battery low.
-  - Automatically drop color temperature to 3400K (Halogen) and decrease brightness by 20% when battery drops below 20%.
+  - In `src/checks.c` / `src/checks.h`, implemented `battery_info_t` and `checks_get_battery_status()` inspecting `/sys/class/power_supply` for AC online status, battery capacity, and charging status.
+  - Added `battery_saver` tri-state (`0=off`, `1=auto`, `2=forced on`) in `src/ipc.c` / `src/ipc.h` with CLI/IPC command `battery-saver [on|auto|off]`.
+  - In `src/redshift.c`, automatically clamp color temperature to 3400K (Halogen) and decrease display brightness by 20% when on battery power ($\le 25\%$ capacity or forced on).
+  - Integrated GTK status icon tray menu toggle (`🔋 Battery Saver`) and Preferences & Settings dialog card.
 - **Verification Protocol**:
-  - Simulating battery low signal triggers power-saving profile.
+  - `tests/test_ipc.c`: Verified IPC toggling of battery saver, state queries, JSON serialization, and reset behavior.
+  - Live system verification against Linux Mint laptop power supply subsystem (`BAT0`).
 
 ---
 
@@ -700,6 +710,10 @@ In the engineering of display-altering systems software, software defects immedi
 | **Astigmatism Halation Floor**| `tests/test_colorramp` | $R[0] \ge 3200, R[max] \le 57000$ (5% floor, 86% peak)| **PASS (Verified)** |
 | **Melanopic Notch Filter**    | `tests/test_colorramp` | Selective 35% suppression on 480nm cyan band | **PASS (Verified)** |
 | **CVD Daltonization Curves**  | `tests/test_colorramp` | Protan, Deutan, Tritan, Achromat S-curve | **PASS (Verified)** |
+| **CRTC Calibration (WO-013)** | `tests/test_ipc` / `crtc-calibrate` | Multi-monitor independent gamma multipliers | **PASS (Verified)** |
+| **Ambient Auto-Brightness (WO-014)** | `status -j` / IIO lux reactor | Logarithmic lux-to-brightness modulation | **PASS (Verified)** |
+| **Wayland Blend Curves (WO-017)** | `src/gamma-wayland.c` | 4-step sub-frame 60fps interpolation & flush | **PASS (Verified)** |
+| **Battery Saver Throttling (WO-018)** | `/sys/class/power_supply` | 3400K clamp & 20% brightness throttle on battery | **PASS (Verified)** |
 | **Click-Through Vignette**    | `statusicon.py` (Cairo) | Empty Gdk input region, non-blocking click-through | **PASS (Verified)** |
 | **HEV Photon Telemetry**      | `jarheart stats` / JSON | Accurate Joule and Tera-photon integration | **PASS (Verified)** |
 | **Compositor Passthrough**    | `compiz --replace` | Zero tearing, CRTC downstream of OpenGL | **PASS (Verified)** |

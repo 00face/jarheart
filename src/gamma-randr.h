@@ -24,4 +24,7 @@
 
 extern const gamma_method_t randr_gamma_method;
 
+/* Set per-CRTC RGB calibration multiplier (WO-013) */
+int randr_set_crtc_calibration(int crtc_num, float r, float g, float b);
+
 #endif /* ! REDSHIFT_GAMMA_RANDR_H */

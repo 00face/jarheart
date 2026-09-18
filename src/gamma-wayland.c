@@ -32,6 +32,7 @@
 #include <sys/syscall.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <time.h>
 
 #ifdef ENABLE_NLS
 # include <libintl.h>
@@ -53,6 +54,9 @@ typedef struct wayland_output {
 	struct zwlr_gamma_control_v1 *gamma_control;
 	uint32_t ramp_size;
 	int failed;
+	uint16_t *current_r;
+	uint16_t *current_g;
+	uint16_t *current_b;
 	struct wayland_output *next;
 } wayland_output_t;
 
@@ -151,6 +155,9 @@ registry_handle_global_remove(void *data, struct wl_registry *registry, uint32_t
 			if (to_remove->wl_output != NULL) {
 				wl_output_destroy(to_remove->wl_output);
 			}
+			free(to_remove->current_r);
+			free(to_remove->current_g);
+			free(to_remove->current_b);
 			free(to_remove);
 			break;
 		}
@@ -247,6 +254,9 @@ wayland_free(wayland_state_t *state)
 		if (curr->wl_output != NULL) {
 			wl_output_destroy(curr->wl_output);
 		}
+		free(curr->current_r);
+		free(curr->current_g);
+		free(curr->current_b);
 		free(curr);
 		curr = next;
 	}
@@ -293,37 +303,85 @@ wayland_set_temperature(
 		size_t ramp_bytes = o->ramp_size * sizeof(uint16_t);
 		size_t total_bytes = 3 * ramp_bytes;
 
-		int fd = create_shm_file((off_t)total_bytes);
-		if (fd < 0) {
-			perror("create_shm_file");
+		uint16_t *target_r = malloc(ramp_bytes);
+		uint16_t *target_g = malloc(ramp_bytes);
+		uint16_t *target_b = malloc(ramp_bytes);
+		if (!target_r || !target_g || !target_b) {
+			free(target_r); free(target_g); free(target_b);
 			return -1;
 		}
-
-		uint16_t *table = mmap(NULL, total_bytes, PROT_READ | PROT_WRITE,
-				       MAP_SHARED, fd, 0);
-		if (table == MAP_FAILED) {
-			perror("mmap");
-			close(fd);
-			return -1;
-		}
-
-		uint16_t *r = &table[0 * o->ramp_size];
-		uint16_t *g = &table[1 * o->ramp_size];
-		uint16_t *b = &table[2 * o->ramp_size];
 
 		for (uint32_t i = 0; i < o->ramp_size; i++) {
 			uint16_t val = (uint16_t)(((double)i / (o->ramp_size - 1)) * UINT16_MAX);
-			r[i] = val;
-			g[i] = val;
-			b[i] = val;
+			target_r[i] = val;
+			target_g[i] = val;
+			target_b[i] = val;
 		}
 
-		colorramp_fill(r, g, b, (int)o->ramp_size, setting);
+		colorramp_fill(target_r, target_g, target_b, (int)o->ramp_size, setting);
 
-		munmap(table, total_bytes);
+		/* WO-017: If a prior ramp is active and differs, smoothly blend across sub-frames */
+		int blend_steps = (o->current_r != NULL) ? 4 : 1;
+		for (int step = 1; step <= blend_steps; step++) {
+			double alpha = (double)step / blend_steps;
 
-		zwlr_gamma_control_v1_set_gamma(o->gamma_control, fd);
-		close(fd);
+			int fd = create_shm_file((off_t)total_bytes);
+			if (fd < 0) {
+				perror("create_shm_file");
+				free(target_r); free(target_g); free(target_b);
+				return -1;
+			}
+
+			uint16_t *table = mmap(NULL, total_bytes, PROT_READ | PROT_WRITE,
+					       MAP_SHARED, fd, 0);
+			if (table == MAP_FAILED) {
+				perror("mmap");
+				close(fd);
+				free(target_r); free(target_g); free(target_b);
+				return -1;
+			}
+
+			uint16_t *r = &table[0 * o->ramp_size];
+			uint16_t *g = &table[1 * o->ramp_size];
+			uint16_t *b = &table[2 * o->ramp_size];
+
+			if (blend_steps > 1 && o->current_r != NULL) {
+				for (uint32_t i = 0; i < o->ramp_size; i++) {
+					r[i] = (uint16_t)((1.0 - alpha) * o->current_r[i] + alpha * target_r[i]);
+					g[i] = (uint16_t)((1.0 - alpha) * o->current_g[i] + alpha * target_g[i]);
+					b[i] = (uint16_t)((1.0 - alpha) * o->current_b[i] + alpha * target_b[i]);
+				}
+			} else {
+				memcpy(r, target_r, ramp_bytes);
+				memcpy(g, target_g, ramp_bytes);
+				memcpy(b, target_b, ramp_bytes);
+			}
+
+			munmap(table, total_bytes);
+			zwlr_gamma_control_v1_set_gamma(o->gamma_control, fd);
+			close(fd);
+
+			if (step < blend_steps) {
+				wl_display_flush(state->display);
+				struct timespec ts = { .tv_sec = 0, .tv_nsec = 16000000 }; /* 16ms blend tick */
+				nanosleep(&ts, NULL);
+			}
+		}
+
+		if (o->current_r == NULL) {
+			o->current_r = malloc(ramp_bytes);
+			o->current_g = malloc(ramp_bytes);
+			o->current_b = malloc(ramp_bytes);
+		}
+		if (o->current_r && o->current_g && o->current_b) {
+			memcpy(o->current_r, target_r, ramp_bytes);
+			memcpy(o->current_g, target_g, ramp_bytes);
+			memcpy(o->current_b, target_b, ramp_bytes);
+		}
+
+		free(target_r);
+		free(target_g);
+		free(target_b);
 	}
 
 	wl_display_flush(state->display);

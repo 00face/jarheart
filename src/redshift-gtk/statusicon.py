@@ -252,6 +252,16 @@ class RedshiftStatusIcon(object):
         self.vignette_item.connect('toggled', self.vignette_toggle_cb)
         self.status_menu.append(self.vignette_item)
 
+        # Add Auto-Brightness action (WO-014)
+        self.autobrightness_item = Gtk.CheckMenuItem.new_with_label(_('💡 Auto-Brightness (IIO Sensor)'))
+        self.autobrightness_item.connect('toggled', self.autobrightness_toggle_cb)
+        self.status_menu.append(self.autobrightness_item)
+
+        # Add Battery Saver action (WO-018)
+        self.battery_item = Gtk.CheckMenuItem.new_with_label(_('🔋 Battery Saver Throttle (Auto)'))
+        self.battery_item.connect('toggled', self.battery_toggle_cb)
+        self.status_menu.append(self.battery_item)
+
         # Add Presets submenu
         presets_menu_item = Gtk.MenuItem.new_with_label(_('Presets'))
         presets_menu = Gtk.Menu()
@@ -575,6 +585,20 @@ class RedshiftStatusIcon(object):
             self.send_ipc('vignette off')
         self._sync_vignette_overlay(active)
 
+    def autobrightness_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('auto-brightness on')
+        else:
+            self.send_ipc('auto-brightness off')
+        self.update_status_icon()
+
+    def battery_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('battery-saver auto')
+        else:
+            self.send_ipc('battery-saver off')
+        self.update_status_icon()
+
     def pacer_cb(self, widget, mode):
         self.send_ipc('pacer ' + mode)
 
@@ -659,6 +683,14 @@ class RedshiftStatusIcon(object):
                 self.vignette_item.set_active(vignette_active)
                 self.vignette_item.handler_unblock_by_func(self.vignette_toggle_cb)
                 self._sync_vignette_overlay(vignette_active)
+
+                self.autobrightness_item.handler_block_by_func(self.autobrightness_toggle_cb)
+                self.autobrightness_item.set_active(_bool(st.get('auto_brightness')))
+                self.autobrightness_item.handler_unblock_by_func(self.autobrightness_toggle_cb)
+
+                self.battery_item.handler_block_by_func(self.battery_toggle_cb)
+                self.battery_item.set_active(st.get('battery_saver') in ('auto', 'on', True, 'true', 1, 2))
+                self.battery_item.handler_unblock_by_func(self.battery_toggle_cb)
 
                 cvd_mode = st.get('cvd_mode', 'none')
                 if not cvd_mode or cvd_mode == '':

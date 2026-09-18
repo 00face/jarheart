@@ -208,6 +208,87 @@ checks_check_timezone(checks_result_t *result)
 }
 
 int
+checks_get_battery_status(battery_info_t *info)
+{
+	if (info == NULL) return -1;
+	memset(info, 0, sizeof(*info));
+	info->battery_percent = -1;
+
+	/* 1. Check AC status from /sys/class/power_supply */
+	int ac_online = -1;
+	FILE *f_ac = fopen("/sys/class/power_supply/AC/online", "r");
+	if (f_ac != NULL) {
+		if (fscanf(f_ac, "%d", &ac_online) != 1) ac_online = -1;
+		fclose(f_ac);
+	}
+
+	/* 2. Check battery in /sys/class/power_supply */
+	DIR *dir = opendir("/sys/class/power_supply");
+	if (dir == NULL) return -1;
+
+	struct dirent *ent;
+	while ((ent = readdir(dir)) != NULL) {
+		if (ent->d_name[0] == '.') continue;
+		if (strncmp(ent->d_name, "BAT", 3) != 0) {
+			char type_path[512];
+			snprintf(type_path, sizeof(type_path), "/sys/class/power_supply/%s/type", ent->d_name);
+			FILE *ft = fopen(type_path, "r");
+			int is_bat = 0;
+			if (ft != NULL) {
+				char type_str[64];
+				if (fgets(type_str, sizeof(type_str), ft) != NULL && strstr(type_str, "Battery") != NULL) {
+					is_bat = 1;
+				}
+				fclose(ft);
+			}
+			if (!is_bat) continue;
+		}
+
+		info->available = 1;
+
+		/* Read status */
+		char path[512];
+		snprintf(path, sizeof(path), "/sys/class/power_supply/%s/status", ent->d_name);
+		FILE *fs = fopen(path, "r");
+		if (fs != NULL) {
+			if (fgets(info->status, sizeof(info->status), fs) != NULL) {
+				char *nl = strchr(info->status, '\n');
+				if (nl) *nl = '\0';
+			}
+			fclose(fs);
+		}
+
+		/* Read capacity */
+		snprintf(path, sizeof(path), "/sys/class/power_supply/%s/capacity", ent->d_name);
+		FILE *fc = fopen(path, "r");
+		if (fc != NULL) {
+			int cap = -1;
+			if (fscanf(fc, "%d", &cap) == 1 && cap >= 0 && cap <= 100) {
+				info->battery_percent = cap;
+			}
+			fclose(fc);
+		}
+		break;
+	}
+	closedir(dir);
+
+	if (info->available) {
+		if (strcasecmp(info->status, "Discharging") == 0) {
+			info->on_battery = 1;
+		} else if (ac_online == 0) {
+			info->on_battery = 1;
+		} else if (ac_online == 1) {
+			info->on_battery = 0;
+		} else {
+			info->on_battery = (strcasecmp(info->status, "Charging") != 0 && strcasecmp(info->status, "Full") != 0);
+		}
+		return 0;
+	}
+
+	return -1;
+}
+
+int
 checks_format_summary(checks_result_t *result, char *buf, size_t buf_size)
 {
 	if (result == NULL || buf == NULL || buf_size == 0) return -1;
@@ -216,14 +297,24 @@ checks_format_summary(checks_result_t *result, char *buf, size_t buf_size)
 	checks_check_weather(result, 0);
 	checks_check_timezone(result);
 
+	battery_info_t bat;
+	char bat_buf[128] = "N/A (Desktop / AC)";
+	if (checks_get_battery_status(&bat) == 0 && bat.available) {
+		snprintf(bat_buf, sizeof(bat_buf), "%d%% (%s, %s)",
+			 bat.battery_percent, bat.status,
+			 bat.on_battery ? "Battery Power" : "AC Connected");
+	}
+
 	snprintf(buf, buf_size,
 		 "Environment & System Checks:\n"
 		 "  Light:      %s\n"
 		 "  Weather:    %s\n"
-		 "  Timezone:   %s\n",
+		 "  Timezone:   %s\n"
+		 "  Power:      %s\n",
 		 result->light_summary,
 		 result->weather_summary,
-		 result->timezone_summary);
+		 result->timezone_summary,
+		 bat_buf);
 
 	return 0;
 }

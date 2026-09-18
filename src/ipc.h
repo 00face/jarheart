@@ -62,6 +62,10 @@ typedef struct {
 	int strain_tracker;
 	int vignette_mode;
 	cvd_mode_t cvd_mode;
+	int battery_saver;      /* 0=off, 1=auto, 2=forced on (WO-018) */
+	int auto_brightness;    /* 0=off, 1=on (WO-014) */
+	int als_threshold;      /* lux delta threshold (default 50) */
+	float crtc_calibrations[8][3]; /* per-CRTC R,G,B multipliers (WO-013) */
 	uint64_t total_active_seconds;
 	uint64_t restorative_seconds;
 	double hev_joules_saved;
@@ -74,6 +78,10 @@ typedef struct {
 /* Parse human duration string like "30m", "1h", "45s", "1800" into seconds.
    Returns >= 0 on success, -1 on error. */
 int ipc_parse_duration(const char *str);
+
+/* Callback type for dynamic CRTC calibration (WO-013) */
+typedef int (*crtc_calibration_fn)(int, float, float, float);
+void ipc_set_crtc_calibration_callback(crtc_calibration_fn fn);
 
 /* Format a response for a given command against the daemon state.
    Returns 0 on success. */

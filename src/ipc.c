@@ -48,6 +48,14 @@ static const char *period_names_ipc[] = {
 	"Transition"
 };
 
+static crtc_calibration_fn g_crtc_calibration_cb = NULL;
+
+void
+ipc_set_crtc_calibration_callback(crtc_calibration_fn fn)
+{
+	g_crtc_calibration_cb = fn;
+}
+
 /* Parse human duration string into seconds */
 int
 ipc_parse_duration(const char *str)
@@ -215,6 +223,9 @@ ipc_dispatch_command(
 				 "  \"strain_tracker\": %s,\n"
 				 "  \"vignette_mode\": %s,\n"
 				 "  \"cvd_mode\": \"%s\",\n"
+				 "  \"battery_saver\": \"%s\",\n"
+				 "  \"auto_brightness\": %s,\n"
+				 "  \"als_threshold\": %d,\n"
 				 "  \"total_active_seconds\": %llu,\n"
 				 "  \"restorative_seconds\": %llu,\n"
 				 "  \"hev_joules_saved\": %.2f,\n"
@@ -255,6 +266,9 @@ ipc_dispatch_command(
 				 state->strain_tracker ? "true" : "false",
 				 state->vignette_mode ? "true" : "false",
 				 colorramp_cvd_mode_name(state->cvd_mode),
+				 state->battery_saver == 2 ? "on" : (state->battery_saver == 1 ? "auto" : "off"),
+				 state->auto_brightness ? "true" : "false",
+				 state->als_threshold,
 				 (unsigned long long)state->total_active_seconds,
 				 (unsigned long long)state->restorative_seconds,
 				 state->hev_joules_saved,
@@ -320,6 +334,8 @@ ipc_dispatch_command(
 			 "PWM-Free: %s\n"
 			 "Strain tracker: %s\n"
 			 "CVD mode: %s\n"
+			 "Battery saver: %s\n"
+			 "Auto-brightness: %s\n"
 			 "Myopia protect: %s\n"
 			 "Coupled brightness: %s\n"
 			 "Ambient balancer: %s\n"
@@ -347,6 +363,8 @@ ipc_dispatch_command(
 			 state->pwm_free ? "Enabled (100% DC backlight)" : "Disabled",
 			 state->strain_tracker ? "Enabled (input velocity monitor)" : "Disabled",
 			 colorramp_cvd_mode_name(state->cvd_mode),
+			 state->battery_saver == 2 ? "Forced On (3400K, -20% brightness)" : (state->battery_saver == 1 ? "Auto (triggers on <=25% battery)" : "Disabled"),
+			 state->auto_brightness ? "Enabled (dynamic IIO lux matching)" : "Disabled",
 			 state->myopia_protect ? "Active (2850K, 60% lum)" : "Inactive",
 			 state->couple_brightness ? "Enabled" : "Disabled",
 			 state->ambient_balancer ? "Enabled (dynamic lux matching)" : "Disabled",
@@ -637,6 +655,65 @@ ipc_dispatch_command(
 			 "Color Vision Deficiency (CVD) Assistance: %s\n",
 			 colorramp_cvd_mode_name(state->cvd_mode));
 		return 0;
+	} else if (strcasecmp(cmd, "battery-saver") == 0 || strcasecmp(cmd, "battery") == 0 ||
+		   strcasecmp(cmd, "low-power") == 0 || strcasecmp(cmd, "powersave") == 0) {
+		if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "force") == 0) {
+			state->battery_saver = 2;
+		} else if (strcasecmp(arg, "auto") == 0) {
+			state->battery_saver = 1;
+		} else if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0) {
+			state->battery_saver = 0;
+		} else {
+			state->battery_saver = (state->battery_saver == 0) ? 1 : 0;
+		}
+		state->state_changed = 1;
+		const char *mode_name = state->battery_saver == 2 ? "Forced On (3400K, -20% brightness)" :
+					(state->battery_saver == 1 ? "Auto (triggers on <=25% battery)" : "Disabled");
+		snprintf(response_buf, response_buf_size, "Battery Saver: %s\n", mode_name);
+		return 0;
+	} else if (strcasecmp(cmd, "auto-brightness") == 0 || strcasecmp(cmd, "autobrightness") == 0) {
+		if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0) {
+			state->auto_brightness = 1;
+		} else if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0) {
+			state->auto_brightness = 0;
+		} else {
+			state->auto_brightness = !state->auto_brightness;
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size, "Auto-Brightness (IIO Sensor): %s\n",
+			 state->auto_brightness ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "als-threshold") == 0) {
+		int th = atoi(arg);
+		if (th > 0) {
+			state->als_threshold = th;
+			snprintf(response_buf, response_buf_size, "ALS Lux Threshold: %d lux\n", th);
+		} else {
+			snprintf(response_buf, response_buf_size, "Current ALS Lux Threshold: %d lux\n", state->als_threshold);
+		}
+		return 0;
+	} else if (strcasecmp(cmd, "crtc-calibrate") == 0 || strcasecmp(cmd, "crtc-gamma") == 0) {
+		int idx = -1;
+		float r_m = 1.0f, g_m = 1.0f, b_m = 1.0f;
+		if (sscanf(arg, "%d %f %f %f", &idx, &r_m, &g_m, &b_m) == 4 ||
+		    sscanf(arg, "%d:%f:%f:%f", &idx, &r_m, &g_m, &b_m) == 4) {
+			if (idx >= 0 && idx < 8) {
+				state->crtc_calibrations[idx][0] = r_m;
+				state->crtc_calibrations[idx][1] = g_m;
+				state->crtc_calibrations[idx][2] = b_m;
+				if (g_crtc_calibration_cb != NULL) {
+					g_crtc_calibration_cb(idx, r_m, g_m, b_m);
+				}
+				state->state_changed = 1;
+				snprintf(response_buf, response_buf_size,
+					 "CRTC %d Calibration set: R=%.2f, G=%.2f, B=%.2f\n",
+					 idx, r_m, g_m, b_m);
+				return 0;
+			}
+		}
+		snprintf(response_buf, response_buf_size,
+			 "Usage: crtc-calibrate <crtc_idx> <r_mult> <g_mult> <b_mult> (e.g. 0 1.0 0.95 1.0)\n");
+		return 0;
 	} else if (strcasecmp(cmd, "stats") == 0 || strcasecmp(cmd, "telemetry") == 0) {
 		double tera_photons = (state->hev_joules_saved * 2.26e18) / 1e12;
 		snprintf(response_buf, response_buf_size,
@@ -857,6 +934,17 @@ ipc_dispatch_command(
 		state->melanopic_notch = 0;
 		state->vignette_mode = 0;
 		state->cvd_mode = CVD_NONE;
+		state->battery_saver = 0;
+		state->auto_brightness = 0;
+		state->als_threshold = 50;
+		for (int c = 0; c < 8; c++) {
+			state->crtc_calibrations[c][0] = 1.0f;
+			state->crtc_calibrations[c][1] = 1.0f;
+			state->crtc_calibrations[c][2] = 1.0f;
+			if (g_crtc_calibration_cb != NULL) {
+				g_crtc_calibration_cb(c, 1.0f, 1.0f, 1.0f);
+			}
+		}
 		state->current_preset[0] = '\0';
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size, "Status: Normal\n");
@@ -884,6 +972,9 @@ ipc_dispatch_command(
 			 "  strain [on|off]  Input-velocity strain monitor & adaptive tear-film blink pacer\n"
 			 "  vignette [on|off]Peripheral glare shield (ultrawide ambient edge falloff)\n"
 			 "  cvd [MODE|off]   Color vision assistance (protanopia, deuteranopia, tritanopia, achromatopsia)\n"
+			 "  battery-saver [on|auto|off] Low-power throttle (3400K, 80%% brightness on battery)\n"
+			 "  auto-brightness [on|off] Ambient light sensor (IIO) dynamic auto-brightness\n"
+			 "  crtc-calibrate ID R G B  Per-CRTC RGB white point calibration multiplier\n"
 			 "  stats            Ocular ergonomics telemetry & HEV blue photon energy saved\n"
 			 "  myopia-protect   Myopia protection mode (2850K, 60%% luminance limit)\n"
 			 "  couple-brightness Couple screen brightness with Kelvin temperature (Kruithof)\n"
@@ -1172,6 +1263,9 @@ ipc_client_dispatch(int argc, char *argv[])
 		"ambient", "contrast", "pacer",
 		"sunlight", "outdoor",
 		"cvd", "colorblind", "daltonize",
+		"battery-saver", "battery", "low-power", "powersave",
+		"auto-brightness", "autobrightness", "als-threshold",
+		"crtc-calibrate", "crtc-gamma",
 		"quit", "exit", "stop", "help", NULL
 	};
 

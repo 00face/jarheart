@@ -689,6 +689,56 @@ class SettingsDialog(Gtk.Window):
         card_cvd.pack_start(strip_box, False, False, 0)
         box.pack_start(card_cvd, False, False, 0)
 
+        # Auto-Brightness (IIO Ambient Sensor) Card (WO-014)
+        card_ab = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_ab.get_style_context().add_class('card-box')
+        v_ab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_ab.set_hexpand(True)
+        lbl_ab = Gtk.Label(label=_("💡 Auto-Brightness (IIO Ambient Lux Sensor)"))
+        lbl_ab.get_style_context().add_class('card-title')
+        lbl_ab.set_xalign(0.0)
+        desc_ab = Gtk.Label(label=_(
+            "Dynamically monitors ambient room illuminance from hardware IIO lux sensors.\n"
+            "Modulates display brightness smoothly to maintain comfortable contrast with surrounding light."
+        ))
+        desc_ab.get_style_context().add_class('card-desc')
+        desc_ab.set_xalign(0.0)
+        desc_ab.set_line_wrap(True)
+        v_ab.pack_start(lbl_ab, False, False, 0)
+        v_ab.pack_start(desc_ab, False, False, 0)
+        card_ab.pack_start(v_ab, True, True, 0)
+
+        self.autobrightness_switch = Gtk.Switch()
+        self.autobrightness_switch.set_valign(Gtk.Align.CENTER)
+        self.autobrightness_switch.connect('notify::active', self.on_autobrightness_toggled)
+        card_ab.pack_start(self.autobrightness_switch, False, False, 0)
+        box.pack_start(card_ab, False, False, 0)
+
+        # Battery Saver / Low-Power Adaptive Throttle Card (WO-018)
+        card_bat = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_bat.get_style_context().add_class('card-box')
+        v_bat = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_bat.set_hexpand(True)
+        lbl_bat = Gtk.Label(label=_("🔋 Battery Saver / Low-Power Adaptive Throttle"))
+        lbl_bat.get_style_context().add_class('card-title')
+        lbl_bat.set_xalign(0.0)
+        desc_bat = Gtk.Label(label=_(
+            "Monitors kernel power supply state (/sys/class/power_supply).\n"
+            "Automatically clamps temperature to 3400K and reduces brightness by 20% on low battery (<=25%)."
+        ))
+        desc_bat.get_style_context().add_class('card-desc')
+        desc_bat.set_xalign(0.0)
+        desc_bat.set_line_wrap(True)
+        v_bat.pack_start(lbl_bat, False, False, 0)
+        v_bat.pack_start(desc_bat, False, False, 0)
+        card_bat.pack_start(v_bat, True, True, 0)
+
+        self.battery_switch = Gtk.Switch()
+        self.battery_switch.set_valign(Gtk.Align.CENTER)
+        self.battery_switch.connect('notify::active', self.on_battery_toggled)
+        card_bat.pack_start(self.battery_switch, False, False, 0)
+        box.pack_start(card_bat, False, False, 0)
+
         # Color-Critical Pause Quick Action
         card5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         card5.get_style_context().add_class('card-box')
@@ -899,6 +949,14 @@ class SettingsDialog(Gtk.Window):
         val = switch.get_active()
         self.send_ipc(f'vignette {"on" if val else "off"}')
 
+    def on_autobrightness_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'auto-brightness {"on" if val else "off"}')
+
+    def on_battery_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'battery-saver {"auto" if val else "off"}')
+
     def on_cvd_combo_changed(self, combo):
         active_id = combo.get_active_id() or 'none'
         self.send_ipc(f'cvd {active_id}')
@@ -939,6 +997,8 @@ melanopic-notch={'true' if self.notch_switch.get_active() else 'false'}
 pwm-free={'true' if self.pwm_switch.get_active() else 'false'}
 strain-tracker={'true' if self.strain_switch.get_active() else 'false'}
 vignette-mode={'true' if self.vignette_switch.get_active() else 'false'}
+auto-brightness={'true' if self.autobrightness_switch.get_active() else 'false'}
+battery-saver={'auto' if self.battery_switch.get_active() else 'off'}
 cvd-mode={self.cvd_combo.get_active_id() or 'none'}
 pacer-interval={1200 if self.pacer_switch.get_active() else 0}
 adjustment-method=randr
@@ -992,6 +1052,10 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
                             self.cvd_combo.set_active_id(cfg[sec]['cvd-mode'])
                         elif 'cvd' in cfg[sec]:
                             self.cvd_combo.set_active_id(cfg[sec]['cvd'])
+                        if 'auto-brightness' in cfg[sec]:
+                            self.autobrightness_switch.set_active(cfg[sec]['auto-brightness'].lower() in ('1', 'true', 'on', 'yes'))
+                        if 'battery-saver' in cfg[sec]:
+                            self.battery_switch.set_active(cfg[sec]['battery-saver'].lower() in ('1', 'true', 'on', 'yes', 'auto'))
                     break
                 except Exception:
                     pass
@@ -1056,6 +1120,14 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         self.vignette_switch.handler_block_by_func(self.on_vignette_toggled)
         self.vignette_switch.set_active(_bool(st.get('vignette_mode')))
         self.vignette_switch.handler_unblock_by_func(self.on_vignette_toggled)
+
+        self.autobrightness_switch.handler_block_by_func(self.on_autobrightness_toggled)
+        self.autobrightness_switch.set_active(_bool(st.get('auto_brightness')))
+        self.autobrightness_switch.handler_unblock_by_func(self.on_autobrightness_toggled)
+
+        self.battery_switch.handler_block_by_func(self.on_battery_toggled)
+        self.battery_switch.set_active(st.get('battery_saver') in ('auto', 'on', True, 'true', 1, 2))
+        self.battery_switch.handler_unblock_by_func(self.on_battery_toggled)
 
         cvd = st.get('cvd_mode', 'none')
         if not cvd or cvd == '':

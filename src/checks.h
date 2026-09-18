@@ -56,6 +56,17 @@ int checks_check_timezone(checks_result_t *result);
 /* Run all checks and format human-readable output into buf */
 int checks_format_summary(checks_result_t *result, char *buf, size_t buf_size);
 
+/* Battery information (WO-018) */
+typedef struct {
+	int available;          /* 1 if battery found, 0 if desktop / AC only */
+	int on_battery;         /* 1 if discharging / offline AC, 0 if AC online */
+	int battery_percent;    /* 0-100%, -1 if unavailable */
+	char status[32];        /* Discharging, Charging, Full, etc. */
+} battery_info_t;
+
+/* Get battery and AC power status */
+int checks_get_battery_status(battery_info_t *info);
+
 /* Ensure hardware backlight is at max to eliminate PWM flicker */
 int checks_ensure_pwm_free(void);
 

@@ -670,6 +670,10 @@ run_continual_mode(const location_provider_t *provider,
 	ipc_state.schedule_use_time = scheme->use_time;
 	ipc_state.dawn = scheme->dawn;
 	ipc_state.dusk = scheme->dusk;
+	ipc_state.als_threshold = 50;
+# ifdef ENABLE_RANDR
+	ipc_set_crtc_calibration_callback(randr_set_crtc_calibration);
+# endif
 #endif
 
 	/* Save previous parameters so we can avoid printing status updates if
@@ -1013,6 +1017,38 @@ run_continual_mode(const location_provider_t *provider,
 				} else if (chk_light.backlight_percent >= 0) {
 					float amb_scale = 0.35f + 0.65f * ((float)chk_light.backlight_percent / 100.0f);
 					target_interp.brightness *= amb_scale;
+				}
+			}
+		}
+
+		/* WO-014: Ambient Light Sensor (IIO) Dynamic Auto-Brightness Daemon */
+		if (ipc_state.auto_brightness && !ipc_state.ambient_balancer && !disabled && !ipc_state.darkroom) {
+			checks_result_t chk_light;
+			if (checks_check_light(&chk_light) == 0 && chk_light.ambient_lux >= 0) {
+				static int last_lux = -1;
+				int threshold = ipc_state.als_threshold > 0 ? ipc_state.als_threshold : 50;
+				if (last_lux < 0 || abs(chk_light.ambient_lux - last_lux) >= threshold) {
+					last_lux = chk_light.ambient_lux;
+				}
+				double lux = fmax(1.0, (double)last_lux);
+				float auto_b = 0.35f + 0.65f * (float)(log10(lux) / 3.2);
+				if (auto_b < 0.30f) auto_b = 0.30f;
+				if (auto_b > 1.00f) auto_b = 1.00f;
+				target_interp.brightness *= auto_b;
+			}
+		}
+
+		/* WO-018: Battery Saver / Low Power Adaptive Temp & Backlight Throttling */
+		if (ipc_state.battery_saver != 0 && !disabled && !ipc_state.darkroom) {
+			battery_info_t bat;
+			if (checks_get_battery_status(&bat) == 0 && bat.available) {
+				int should_throttle = (ipc_state.battery_saver == 2) ||
+						      (ipc_state.battery_saver == 1 && bat.on_battery && bat.battery_percent <= 25);
+				if (should_throttle) {
+					if (target_interp.temperature > 3400) {
+						target_interp.temperature = 3400;
+					}
+					target_interp.brightness *= 0.80f;
 				}
 			}
 		}

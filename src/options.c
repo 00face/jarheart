@@ -182,6 +182,9 @@ print_help(const char *program_name)
 		"  strain [on|off]\tInput-Velocity Strain & Blink Pacer\n"
 		"  vignette [on|off]\tPeripheral Glare Shield (ultrawide edge falloff)\n"
 		"  cvd [MODE|off]\tColor Vision Assistance (protanopia, deuteranopia, tritanopia, achromatopsia)\n"
+		"  battery-saver [on|auto|off]\tLow-Power Battery Throttle\n"
+		"  auto-brightness [on|off]\tAmbient Light Sensor (IIO) Dynamic Auto-Brightness\n"
+		"  crtc-calibrate ID R G B\tPer-CRTC RGB White Point Calibration Multiplier\n"
 		"  stats\t\tShow ocular ergonomics & HEV blue energy telemetry\n"
 		"  preset NAME\tActivate Kelvin preset (candle, halogen, sunlight...)\n"
 		"  presets\tList all Kelvin presets and color temperatures\n"
@@ -660,6 +663,12 @@ parse_config_file_option(
 		   strcasecmp(key, "strain-tracker") == 0 ||
 		   strcasecmp(key, "vignette-mode") == 0 ||
 		   strcasecmp(key, "cvd-mode") == 0 ||
+		   strcasecmp(key, "battery-saver") == 0 ||
+		   strcasecmp(key, "auto-brightness") == 0 ||
+		   strcasecmp(key, "als-threshold") == 0 ||
+		   strcasecmp(key, "crtc-calibration") == 0 ||
+		   strcasecmp(key, "crtc-gamma") == 0 ||
+		   (strncasecmp(key, "crtc", 4) == 0 && strstr(key, "-gamma") != NULL) ||
 		   strcasecmp(key, "pacer-interval") == 0) {
 		/* Handled by daemon runtime state / GUI settings */
 	} else {

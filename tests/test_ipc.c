@@ -12,6 +12,7 @@
 #include <string.h>
 #include <assert.h>
 #include <time.h>
+#include <math.h>
 #include "ipc.h"
 
 static void
@@ -40,6 +41,21 @@ test_duration_parser(void)
 	assert(ipc_parse_duration("10xyz") == -1);
 
 	printf("  -> Duration parser tests passed.\n");
+}
+
+static int g_mock_crtc_id = -1;
+static float g_mock_crtc_r = 0.0f;
+static float g_mock_crtc_g = 0.0f;
+static float g_mock_crtc_b = 0.0f;
+
+static int
+mock_crtc_calibration(int id, float r, float g, float b)
+{
+	g_mock_crtc_id = id;
+	g_mock_crtc_r = r;
+	g_mock_crtc_g = g;
+	g_mock_crtc_b = b;
+	return 0;
 }
 
 static void
@@ -87,6 +103,8 @@ test_command_dispatch(void)
 	assert(strstr(resp, "\"strain_tracker\": false") != NULL);
 	assert(strstr(resp, "\"vignette_mode\": false") != NULL);
 	assert(strstr(resp, "\"cvd_mode\": \"none\"") != NULL);
+	assert(strstr(resp, "\"battery_saver\": \"off\"") != NULL);
+	assert(strstr(resp, "\"auto_brightness\": false") != NULL);
 
 	/* Test 'status --xfce' */
 	r = ipc_dispatch_command("status --xfce", &state, resp, sizeof(resp));
@@ -365,7 +383,57 @@ test_command_dispatch(void)
 	assert(r == 0);
 	assert(state.cvd_mode == CVD_NONE);
 
-	/* Test 'reset' clears presets and modes */
+	/* Test WO-018: Battery Saver */
+	r = ipc_dispatch_command("battery-saver auto", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.battery_saver == 1);
+	assert(strstr(resp, "Auto") != NULL);
+
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"battery_saver\": \"auto\"") != NULL);
+
+	r = ipc_dispatch_command("battery on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.battery_saver == 2);
+	assert(strstr(resp, "Forced On") != NULL);
+
+	r = ipc_dispatch_command("battery off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.battery_saver == 0);
+
+	/* Test WO-014: Auto-Brightness & ALS Threshold */
+	r = ipc_dispatch_command("auto-brightness on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.auto_brightness == 1);
+
+	r = ipc_dispatch_command("als-threshold 75", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.als_threshold == 75);
+	assert(strstr(resp, "75 lux") != NULL);
+
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"auto_brightness\": true") != NULL);
+	assert(strstr(resp, "\"als_threshold\": 75") != NULL);
+
+	r = ipc_dispatch_command("auto-brightness off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.auto_brightness == 0);
+
+	/* Test WO-013: CRTC Calibration */
+	ipc_set_crtc_calibration_callback(mock_crtc_calibration);
+	r = ipc_dispatch_command("crtc-calibrate 1 1.05 0.98 1.00", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(g_mock_crtc_id == 1);
+	assert(fabsf(g_mock_crtc_r - 1.05f) < 0.001f);
+	assert(fabsf(g_mock_crtc_g - 0.98f) < 0.001f);
+	assert(fabsf(g_mock_crtc_b - 1.00f) < 0.001f);
+	assert(state.crtc_calibrations[1][0] == 1.05f);
+	assert(state.crtc_calibrations[1][1] == 0.98f);
+	assert(state.crtc_calibrations[1][2] == 1.00f);
+
+	/* Test 'reset' clears presets, modes, battery saver, and CRTC calibration */
 	state.darkroom = 1;
 	state.movie_mode = 1;
 	state.sunlight_mode = 1;
@@ -374,6 +442,8 @@ test_command_dispatch(void)
 	state.melanopic_notch = 1;
 	state.vignette_mode = 1;
 	state.cvd_mode = CVD_PROTANOPIA;
+	state.battery_saver = 2;
+	state.auto_brightness = 1;
 	state.override_temp = 2000;
 	r = ipc_dispatch_command("reset", &state, resp, sizeof(resp));
 	assert(r == 0);
@@ -385,6 +455,9 @@ test_command_dispatch(void)
 	assert(state.melanopic_notch == 0);
 	assert(state.vignette_mode == 0);
 	assert(state.cvd_mode == CVD_NONE);
+	assert(state.battery_saver == 0);
+	assert(state.auto_brightness == 0);
+	assert(state.crtc_calibrations[1][0] == 1.0f);
 	assert(state.override_temp == 0);
 	assert(state.current_preset[0] == '\0');
 	assert(strstr(resp, "Status: Normal") != NULL);

@@ -906,13 +906,22 @@ run_continual_mode(const location_provider_t *provider,
 		if (ipc_state.darkroom) {
 			target_interp.darkroom = 1;
 			target_interp.movie_mode = 0;
+			target_interp.sunlight_mode = 0;
+		} else if (ipc_state.sunlight_mode) {
+			target_interp.darkroom = 0;
+			target_interp.movie_mode = 0;
+			target_interp.sunlight_mode = 1;
+			target_interp.temperature = 7500;
+			target_interp.brightness = 1.00f;
 		} else if (ipc_state.movie_mode) {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 1;
+			target_interp.sunlight_mode = 0;
 			target_interp.temperature = 4200;
 		} else if (ipc_state.myopia_protect) {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 0;
+			target_interp.sunlight_mode = 0;
 			target_interp.temperature = 2850;
 			if (target_interp.brightness > 0.60f) {
 				target_interp.brightness = 0.60f;
@@ -920,13 +929,14 @@ run_continual_mode(const location_provider_t *provider,
 		} else {
 			target_interp.darkroom = 0;
 			target_interp.movie_mode = 0;
+			target_interp.sunlight_mode = 0;
 			if (ipc_state.override_temp > 0) {
 				target_interp.temperature = ipc_state.override_temp;
 			}
 		}
 
 		/* Coupled brightness: dynamically scale brightness along Kruithof comfort curve */
-		if (ipc_state.couple_brightness && !disabled && !ipc_state.darkroom) {
+		if (ipc_state.couple_brightness && !disabled && !ipc_state.darkroom && !ipc_state.sunlight_mode) {
 			float t_norm = (float)(target_interp.temperature - 2000) / (float)(6500 - 2000);
 			if (t_norm < 0.0f) t_norm = 0.0f;
 			if (t_norm > 1.0f) t_norm = 1.0f;
@@ -936,11 +946,16 @@ run_continual_mode(const location_provider_t *provider,
 			}
 		}
 
-		/* WO-023: Ambient Contrast Balancer (dynamic lux scaling) */
+		/* WO-023 & WO-025: Ambient Contrast Balancer & Sunlight Auto-Trigger */
 		if (ipc_state.ambient_balancer && !disabled && !ipc_state.darkroom) {
 			checks_result_t chk_light;
 			if (checks_check_light(&chk_light) == 0) {
-				if (chk_light.ambient_lux >= 0) {
+				if (chk_light.ambient_lux >= 3000) {
+					/* High ambient daylight/sunlight: auto-engage sunlight glare boost */
+					target_interp.sunlight_mode = 1;
+					target_interp.temperature = 7500;
+					target_interp.brightness = 1.00f;
+				} else if (chk_light.ambient_lux >= 0) {
 					double lux = fmax(1.0, (double)chk_light.ambient_lux);
 					float amb_scale = 0.40f + 0.60f * (float)(log10(lux) / 3.0);
 					if (amb_scale < 0.40f) amb_scale = 0.40f;

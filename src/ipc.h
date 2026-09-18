@@ -53,6 +53,7 @@ typedef struct {
 	int myopia_protect;
 	int couple_brightness;
 	int ambient_balancer;
+	int sunlight_mode;
 	int pacer_interval;
 	time_t last_pacer_time;
 	int pacer_breathe;

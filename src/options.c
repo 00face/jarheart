@@ -174,6 +174,7 @@ print_help(const char *program_name)
 		"  resume\tResume daemon adjustments\n"
 		"  darkroom\tToggle darkroom mode (monochrome deep red)\n"
 		"  movie [TIME]\tMovie Mode (2.5h, preserves sky & shadows)\n"
+		"  sunlight [on|off]\tSunlight / Outdoor Mode (7500K, anti-glare lift)\n"
 		"  preset NAME\tActivate Kelvin preset (candle, halogen, sunlight...)\n"
 		"  presets\tList all Kelvin presets and color temperatures\n"
 		"  schedule [TIMES] Set or view time-based or solar schedule\n"
@@ -634,6 +635,18 @@ parse_config_file_option(
 				return -1;
 			}
 		}
+	} else if (strcasecmp(key, "schedule") == 0) {
+		if (strcasecmp(value, "diurnal") == 0) {
+			options->scheme.use_time = 2;
+		} else if (strcasecmp(value, "solar") == 0) {
+			options->scheme.use_time = 0;
+		}
+	} else if (strcasecmp(key, "couple-brightness") == 0 ||
+		   strcasecmp(key, "myopia-protect") == 0 ||
+		   strcasecmp(key, "ambient-balancer") == 0 ||
+		   strcasecmp(key, "sunlight-mode") == 0 ||
+		   strcasecmp(key, "pacer-interval") == 0) {
+		/* Handled by daemon runtime state / GUI settings */
 	} else {
 		fprintf(stderr, _("Unknown configuration setting `%s'.\n"),
 			key);

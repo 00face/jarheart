@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <assert.h>
 
 #include "../src/redshift.h"
@@ -163,7 +164,49 @@ int main(void)
 	const kelvin_preset_t *p_myopia_alias = colorramp_find_preset("myopia");
 	assert(p_myopia_alias != NULL && p_myopia_alias->temperature == 2850);
 
+	const kelvin_preset_t *p_sky = colorramp_find_preset("clear-sky");
+	assert(p_sky != NULL && p_sky->temperature == 7500);
+	const kelvin_preset_t *p_sky_alias = colorramp_find_preset("outdoor");
+	assert(p_sky_alias != NULL && p_sky_alias->temperature == 7500);
+
+	const kelvin_preset_t *p_sunboost = colorramp_find_preset("sunlight-boost");
+	assert(p_sunboost != NULL && p_sunboost->temperature == 8000);
+
 	printf("  All Kelvin presets verified!\n");
+
+	/* Test 8: Sunlight / Outdoor Mode (Anti-Glare Toe-Lift Curve) */
+	color_setting_t sunlight_setting = {
+		.temperature = 7500,
+		.gamma = { 1.0f, 1.0f, 1.0f },
+		.brightness = 1.0f,
+		.sunlight_mode = 1
+	};
+	init_linear_ramp(r, g, b, ramp_size);
+	colorramp_fill(r, g, b, ramp_size, &sunlight_setting);
+	/* Toe-lift lifts low luminance values: r[0], g[0], b[0] must be > 0 (approx 0.18 of scale) */
+	assert(r[0] > 5000);
+	assert(g[0] > 5000);
+	assert(b[0] > 5000);
+	/* White point at ramp_size - 1 must reach full-scale on blue (7500K) without clipping */
+	assert(b[ramp_size - 1] == UINT16_MAX);
+	assert(r[ramp_size - 1] > 50000);
+	assert(g[ramp_size - 1] > 50000);
+	printf("  Sunlight mode toe-lift verified: blacks lifted (R[0]=%u), whites preserved (R[max]=%u)\n",
+	       r[0], r[ramp_size - 1]);
+
+	/* Test 9: Circadian Heart Emoji Mapping */
+	assert(strcmp(colorramp_get_heart_emoji(6500, 1, 0, 0), "🖤") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(3000, 0, 1, 0), "❤️") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(7500, 0, 0, 1), "💙") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(1200, 0, 0, 0), "❤️") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(1900, 0, 0, 0), "❤️‍🔥") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(2700, 0, 0, 0), "🧡") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(3400, 0, 0, 0), "💛") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(4200, 0, 0, 0), "💛") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(5500, 0, 0, 0), "🤍") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(6500, 0, 0, 0), "🤍") == 0);
+	assert(strcmp(colorramp_get_heart_emoji(8000, 0, 0, 0), "💙") == 0);
+	printf("  Circadian Heart Emoji mapping verified!\n");
 
 	printf("test_colorramp PASSED!\n");
 	return 0;

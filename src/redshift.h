@@ -48,6 +48,7 @@ typedef struct {
 	float brightness;
 	int darkroom;
 	int movie_mode;
+	int sunlight_mode;
 } color_setting_t;
 
 /* Program modes. */

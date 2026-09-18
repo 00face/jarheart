@@ -300,6 +300,8 @@ static const kelvin_preset_t kelvin_presets[] = {
 	{ "sunlight", "Sunlight", 5500 },
 	{ "mercury", "Mercury", 5800 },
 	{ "daylight", "Daylight", 6500 },
+	{ "clear-sky", "Clear Sky (Outdoor)", 7500 },
+	{ "sunlight-boost", "Sunlight Boost", 8000 },
 	{ NULL, NULL, 0 }
 };
 
@@ -307,6 +309,20 @@ const kelvin_preset_t *
 colorramp_get_presets(void)
 {
 	return kelvin_presets;
+}
+
+const char *
+colorramp_get_heart_emoji(int temperature, int disabled, int darkroom, int sunlight)
+{
+	if (disabled) return "🖤";
+	if (darkroom) return "❤️";
+	if (sunlight || temperature >= 7200) return "💙";
+	if (temperature <= 1600) return "❤️";
+	if (temperature <= 2200) return "❤️‍🔥";
+	if (temperature <= 2700) return "🧡";
+	if (temperature <= 3500) return "💛";
+	if (temperature <= 4500) return "💛";
+	return "🤍";
 }
 
 static void
@@ -343,6 +359,7 @@ colorramp_find_preset(const char *name)
 	if (strcmp(norm, "myopia") == 0 || strcmp(norm, "reading") == 0) return &kelvin_presets[5]; /* myopia-protect */
 	if (strcmp(norm, "sun") == 0) return &kelvin_presets[12]; /* sunlight */
 	if (strcmp(norm, "day") == 0) return &kelvin_presets[14]; /* daylight */
+	if (strcmp(norm, "sky") == 0 || strcmp(norm, "clearsky") == 0 || strcmp(norm, "outdoor") == 0) return &kelvin_presets[15]; /* clear-sky */
 
 	return NULL;
 }
@@ -370,7 +387,8 @@ colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 		return;
 	}
 
-	int temp = setting->movie_mode ? 4200 : setting->temperature;
+	int temp = setting->movie_mode ? 4200 :
+		   (setting->sunlight_mode ? (setting->temperature >= 7200 ? setting->temperature : 7500) : setting->temperature);
 	if (temp < 1000) temp = 1000;
 	if (temp > 25000) temp = 25000;
 
@@ -394,9 +412,27 @@ colorramp_fill(uint16_t *gamma_r, uint16_t *gamma_g, uint16_t *gamma_b,
 			double g = pow(Y_lifted * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
 			double b = pow(Y_lifted * setting->brightness * sky_blue, 1.0 / setting->gamma[2]);
 
-			gamma_r[i] = (uint16_t)(fmin(fmax(r, 0.0), 1.0) * UINT16_MAX);
-			gamma_g[i] = (uint16_t)(fmin(fmax(g, 0.0), 1.0) * UINT16_MAX);
-			gamma_b[i] = (uint16_t)(fmin(fmax(b, 0.0), 1.0) * UINT16_MAX);
+			double r_out = fmin(fmax(r, 0.0), 1.0) * (UINT16_MAX + 1);
+			double g_out = fmin(fmax(g, 0.0), 1.0) * (UINT16_MAX + 1);
+			double b_out = fmin(fmax(b, 0.0), 1.0) * (UINT16_MAX + 1);
+			gamma_r[i] = (uint16_t)(r_out >= UINT16_MAX ? UINT16_MAX : r_out);
+			gamma_g[i] = (uint16_t)(g_out >= UINT16_MAX ? UINT16_MAX : g_out);
+			gamma_b[i] = (uint16_t)(b_out >= UINT16_MAX ? UINT16_MAX : b_out);
+		} else if (setting->sunlight_mode) {
+			/* Sunlight mode: Anti-Glare Toe-Lift Contrast Curve */
+			double Y_boost = Y + 0.18 * pow(1.0 - Y, 2.0);
+			if (Y_boost > 1.0) Y_boost = 1.0;
+
+			double r = pow(Y_boost * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
+			double g = pow(Y_boost * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
+			double b = pow(Y_boost * setting->brightness * white_point[2], 1.0 / setting->gamma[2]);
+
+			double r_out = fmin(fmax(r, 0.0), 1.0) * (UINT16_MAX + 1);
+			double g_out = fmin(fmax(g, 0.0), 1.0) * (UINT16_MAX + 1);
+			double b_out = fmin(fmax(b, 0.0), 1.0) * (UINT16_MAX + 1);
+			gamma_r[i] = (uint16_t)(r_out >= UINT16_MAX ? UINT16_MAX : r_out);
+			gamma_g[i] = (uint16_t)(g_out >= UINT16_MAX ? UINT16_MAX : g_out);
+			gamma_b[i] = (uint16_t)(b_out >= UINT16_MAX ? UINT16_MAX : b_out);
 		} else {
 			gamma_r[i] = F(Y, 0) * (UINT16_MAX + 1);
 			gamma_g[i] = F(Y, 1) * (UINT16_MAX + 1);
@@ -420,7 +456,8 @@ colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 		return;
 	}
 
-	int temp = setting->movie_mode ? 4200 : setting->temperature;
+	int temp = setting->movie_mode ? 4200 :
+		   (setting->sunlight_mode ? (setting->temperature >= 7200 ? setting->temperature : 7500) : setting->temperature);
 	if (temp < 1000) temp = 1000;
 	if (temp > 25000) temp = 25000;
 
@@ -441,6 +478,17 @@ colorramp_fill_float(float *gamma_r, float *gamma_g, float *gamma_b,
 			double r = pow(Y_lifted * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
 			double g = pow(Y_lifted * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
 			double b = pow(Y_lifted * setting->brightness * sky_blue, 1.0 / setting->gamma[2]);
+
+			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
+			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);
+			gamma_b[i] = (float)fmin(fmax(b, 0.0), 1.0);
+		} else if (setting->sunlight_mode) {
+			double Y_boost = Y + 0.18 * pow(1.0 - Y, 2.0);
+			if (Y_boost > 1.0) Y_boost = 1.0;
+
+			double r = pow(Y_boost * setting->brightness * white_point[0], 1.0 / setting->gamma[0]);
+			double g = pow(Y_boost * setting->brightness * white_point[1], 1.0 / setting->gamma[1]);
+			double b = pow(Y_boost * setting->brightness * white_point[2], 1.0 / setting->gamma[2]);
 
 			gamma_r[i] = (float)fmin(fmax(r, 0.0), 1.0);
 			gamma_g[i] = (float)fmin(fmax(g, 0.0), 1.0);

@@ -77,7 +77,9 @@ test_command_dispatch(void)
 	assert(strstr(resp, "\"period\": \"Daytime\"") != NULL);
 	assert(strstr(resp, "\"temperature\": 6500") != NULL);
 	assert(strstr(resp, "\"method\": \"randr\"") != NULL);
-	assert(strstr(resp, "\"text\": \"6500K\"") != NULL);
+	assert(strstr(resp, "\"emoji\": \"🤍\"") != NULL);
+	assert(strstr(resp, "\"text\": \"🤍 6500K\"") != NULL);
+	assert(strstr(resp, "\"sunlight_mode\": false") != NULL);
 
 	/* Test 'status --xfce' */
 	r = ipc_dispatch_command("status --xfce", &state, resp, sizeof(resp));
@@ -231,14 +233,37 @@ test_command_dispatch(void)
 	assert(state.schedule_use_time == 0);
 	assert(strstr(resp, "Schedule: Solar elevation") != NULL);
 
+	/* Test 'sunlight' */
+	r = ipc_dispatch_command("sunlight on", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.sunlight_mode == 1);
+	assert(strstr(resp, "Sunlight / Outdoor mode: Enabled") != NULL);
+
+	r = ipc_dispatch_command("status --json", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(strstr(resp, "\"sunlight_mode\": true") != NULL);
+	assert(strstr(resp, "\"emoji\": \"💙\"") != NULL);
+
+	r = ipc_dispatch_command("sunlight off", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.sunlight_mode == 0);
+	assert(strstr(resp, "Sunlight / Outdoor mode: Disabled") != NULL);
+
+	r = ipc_dispatch_command("sunlight toggle", &state, resp, sizeof(resp));
+	assert(r == 0);
+	assert(state.sunlight_mode == 1);
+	assert(strstr(resp, "Sunlight / Outdoor mode: Enabled") != NULL);
+
 	/* Test 'reset' clears presets and modes */
 	state.darkroom = 1;
 	state.movie_mode = 1;
+	state.sunlight_mode = 1;
 	state.override_temp = 2000;
 	r = ipc_dispatch_command("reset", &state, resp, sizeof(resp));
 	assert(r == 0);
 	assert(state.darkroom == 0);
 	assert(state.movie_mode == 0);
+	assert(state.sunlight_mode == 0);
 	assert(state.override_temp == 0);
 	assert(state.current_preset[0] == '\0');
 	assert(strstr(resp, "Status: Normal") != NULL);

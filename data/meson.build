@@ -7,6 +7,14 @@ if get_option('gui')
     'icons/hicolor/scalable/apps/jarheart.svg',
     'icons/hicolor/scalable/apps/jarheart-status-on.svg',
     'icons/hicolor/scalable/apps/jarheart-status-off.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-ember.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-candle.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-incandescent.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-halogen.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-fluorescent.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-daylight.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-sunlight.svg',
+    'icons/hicolor/scalable/apps/jarheart-status-darkroom.svg',
     install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps',
   )
 

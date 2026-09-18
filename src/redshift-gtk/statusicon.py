@@ -59,6 +59,27 @@ except (ImportError, ValueError):
 
 _ = gettext.gettext
 
+def get_heart_for_state(temp, inhibited, darkroom=False, movie=False, sunlight=False):
+    """Map color temperature and mode to the closest heart emoji and themed SVG icon."""
+    if inhibited:
+        return "🖤", "jarheart-status-off"
+    if darkroom:
+        return "❤️", "jarheart-status-darkroom"
+    if sunlight or temp >= 7200:
+        return "💙", "jarheart-status-sunlight"
+    if temp <= 1600:
+        return "❤️", "jarheart-status-ember"
+    elif temp <= 2200:
+        return "❤️‍🔥", "jarheart-status-candle"
+    elif temp <= 2700:
+        return "🧡", "jarheart-status-incandescent"
+    elif temp <= 3500:
+        return "💛", "jarheart-status-halogen"
+    elif temp <= 4500:
+        return "💛", "jarheart-status-fluorescent"
+    else:
+        return "🤍", "jarheart-status-daylight"
+
 
 class RedshiftStatusIcon(object):
     """The status icon tracking the RedshiftController."""
@@ -123,6 +144,11 @@ class RedshiftStatusIcon(object):
         self.ambient_item.connect('toggled', self.ambient_toggle_cb)
         self.status_menu.append(self.ambient_item)
 
+        # Add Sunlight Mode action (WO-025)
+        self.sunlight_item = Gtk.CheckMenuItem.new_with_label(_('☀️ Sunlight Mode (Anti-Glare Boost)'))
+        self.sunlight_item.connect('toggled', self.sunlight_toggle_cb)
+        self.status_menu.append(self.sunlight_item)
+
         # Add Presets submenu
         presets_menu_item = Gtk.MenuItem.new_with_label(_('Presets'))
         presets_menu = Gtk.Menu()
@@ -142,6 +168,8 @@ class RedshiftStatusIcon(object):
             ('sunlight', _('Sunlight (5500K)')),
             ('mercury', _('Mercury (5800K)')),
             ('daylight', _('Daylight (6500K)')),
+            ('clear-sky', _('Clear Sky (7500K)')),
+            ('sunlight-boost', _('Sunlight Boost (8000K)')),
         ]
         for p_name, p_label in presets_list:
             p_item = Gtk.MenuItem.new_with_label(p_label)
@@ -373,6 +401,13 @@ class RedshiftStatusIcon(object):
         else:
             self.send_ipc('ambient off')
 
+    def sunlight_toggle_cb(self, widget):
+        if widget.get_active():
+            self.send_ipc('sunlight on')
+        else:
+            self.send_ipc('sunlight off')
+        self.update_status_icon()
+
     def pacer_cb(self, widget, mode):
         self.send_ipc('pacer ' + mode)
 
@@ -387,9 +422,11 @@ class RedshiftStatusIcon(object):
 
     def preset_cb(self, widget, preset_name):
         self.send_ipc('preset ' + preset_name)
+        self.update_status_icon()
 
     def reset_preset_cb(self, widget):
         self.send_ipc('reset')
+        self.update_status_icon()
 
     def reenable_cb(self):
         """Callback to reenable redshift when a suspend timer expires."""
@@ -424,6 +461,10 @@ class RedshiftStatusIcon(object):
                 self.ambient_item.handler_block_by_func(self.ambient_toggle_cb)
                 self.ambient_item.set_active(_bool(st.get('ambient_balancer')))
                 self.ambient_item.handler_unblock_by_func(self.ambient_toggle_cb)
+
+                self.sunlight_item.handler_block_by_func(self.sunlight_toggle_cb)
+                self.sunlight_item.set_active(_bool(st.get('sunlight_mode')))
+                self.sunlight_item.handler_unblock_by_func(self.sunlight_toggle_cb)
             except Exception:
                 pass
 
@@ -468,24 +509,42 @@ class RedshiftStatusIcon(object):
         self.update_status_icon()
 
     def update_status_icon(self):
-        """Update the status icon according to the internally recorded state.
+        """Update the status icon and tray indicator label according to internal state."""
+        temp = getattr(self._controller, 'temperature', None) or 6500
+        inhibited = self._controller.inhibited
 
-        This should be called whenever the internally recorded state
-        might have changed.
-        """
-        prefix = 'jarheart' if self.icon_theme.has_icon('jarheart-status-on') else 'redshift'
-        if self._controller.inhibited:
-            icon_name = f'{prefix}-status-off-symbolic'
-        else:
-            icon_name = f'{prefix}-status-on-symbolic'
+        # Query live state flags from daemon
+        darkroom = False
+        movie = False
+        sunlight = False
+        raw = self.send_ipc('status -j')
+        if raw:
+            try:
+                st = json.loads(raw)
+                darkroom = st.get('darkroom') in (True, 'true', 1, '1')
+                movie = st.get('movie_mode') in (True, 'true', 1, '1')
+                sunlight = st.get('sunlight_mode') in (True, 'true', 1, '1')
+                temp = st.get('temperature', temp)
+            except Exception:
+                pass
 
+        emoji, icon_name = get_heart_for_state(temp, inhibited, darkroom, movie, sunlight)
+
+        # Fallback to base icon if specific temperature icon is missing
         if not self.icon_theme.has_icon(icon_name):
-            icon_name = icon_name.replace('-symbolic', '')
+            fallback_on = 'jarheart-status-on' if self.icon_theme.has_icon('jarheart-status-on') else 'redshift-status-on'
+            fallback_off = 'jarheart-status-off' if self.icon_theme.has_icon('jarheart-status-off') else 'redshift-status-off'
+            icon_name = fallback_off if inhibited else fallback_on
 
+        self._current_emoji = emoji
         if appindicator:
             self.indicator.set_icon(icon_name)
+            # Display the heart emoji matching current color temperature right on the panel
+            label = f"{emoji} {temp}K" if not inhibited else "🖤 Off"
+            self.indicator.set_label(label, "guide")
         else:
             self.status_icon.set_from_icon_name(icon_name)
+            self.update_tooltip_text(emoji, temp)
 
     # State update functions
     def inhibit_change_cb(self, controller, inhibit):
@@ -522,7 +581,7 @@ class RedshiftStatusIcon(object):
 
     # Update interface
     def change_inhibited(self, inhibited):
-        """Change interface to new inhibition status."""
+        """Change interface to new inhibition state."""
         self.update_status_icon()
         self.toggle_item.set_active(not inhibited)
         self.status_label.set_markup(
@@ -533,7 +592,7 @@ class RedshiftStatusIcon(object):
         """Change interface to new temperature."""
         self.temperature_label.set_markup(
             '<b>{}:</b> {}K'.format(_('Color temperature'), temperature))
-        self.update_tooltip_text()
+        self.update_status_icon()
 
     def change_period(self, period):
         """Change interface to new period."""
@@ -546,12 +605,12 @@ class RedshiftStatusIcon(object):
         self.location_label.set_markup(
             '<b>{}:</b> {}, {}'.format(_('Location'), *location))
 
-    def update_tooltip_text(self):
+    def update_tooltip_text(self, emoji=None, temp=None):
         """Update text of tooltip status icon."""
         if not appindicator:
-            self.status_icon.set_tooltip_text('{}: {}K, {}: {}'.format(
-                _('Color temperature'), self._controller.temperature,
-                _('Period'), self._controller.period))
+            em = emoji or getattr(self, '_current_emoji', '🤍')
+            t = temp or getattr(self._controller, 'temperature', 6500)
+            self.status_icon.set_tooltip_text(f"Jarheart {em}: {t}K, {_('Period')}: {self._controller.period}")
 
     def autostart_cb(self, widget, data=None):
         """Callback when a request to toggle autostart is made."""

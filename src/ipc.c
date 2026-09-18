@@ -183,6 +183,12 @@ ipc_dispatch_command(
 		long movie_remaining = (state->movie_mode && state->movie_mode_until > now) ?
 			(long)(state->movie_mode_until - now) : 0;
 
+		const char *heart_emoji = colorramp_get_heart_emoji(
+			state->current_setting.temperature,
+			state->disabled || is_paused,
+			state->darkroom,
+			state->sunlight_mode);
+
 		if (arg != NULL && (strcasecmp(arg, "--json") == 0 || strcasecmp(arg, "-j") == 0 || strcasecmp(arg, "json") == 0)) {
 			snprintf(response_buf, response_buf_size,
 				 "{\n"
@@ -199,6 +205,7 @@ ipc_dispatch_command(
 				 "  \"darkroom\": %s,\n"
 				 "  \"movie_mode\": %s,\n"
 				 "  \"movie_remaining\": %ld,\n"
+				 "  \"sunlight_mode\": %s,\n"
 				 "  \"myopia_protect\": %s,\n"
 				 "  \"couple_brightness\": %s,\n"
 				 "  \"ambient_balancer\": %s,\n"
@@ -206,9 +213,10 @@ ipc_dispatch_command(
 				 "  \"preset\": \"%s\",\n"
 				 "  \"schedule\": \"%s\",\n"
 				 "  \"override_temp\": %d,\n"
-				 "  \"text\": \"%uK\",\n"
+				 "  \"emoji\": \"%s\",\n"
+				 "  \"text\": \"%s %uK\",\n"
 				 "  \"alt\": \"%s\",\n"
-				 "  \"tooltip\": \"Jarheart: %s\\nPeriod: %s\\nTemperature: %uK\\nBrightness: %.2f\",\n"
+				 "  \"tooltip\": \"Jarheart %s: %s\\nPeriod: %s\\nTemperature: %uK\\nBrightness: %.2f\",\n"
 				 "  \"class\": \"%s\"\n"
 				 "}\n",
 				 status_str,
@@ -226,17 +234,24 @@ ipc_dispatch_command(
 				 state->darkroom ? "true" : "false",
 				 state->movie_mode ? "true" : "false",
 				 movie_remaining,
+				 state->sunlight_mode ? "true" : "false",
 				 state->myopia_protect ? "true" : "false",
 				 state->couple_brightness ? "true" : "false",
 				 state->ambient_balancer ? "true" : "false",
 				 state->pacer_interval,
-				 state->current_preset[0] ? state->current_preset : "none",
-				 state->schedule_use_time == 2 ? "diurnal" : (state->schedule_use_time ? "time" : "solar"),
+				 state->current_preset[0] != '\0' ? state->current_preset : "none",
+				 state->schedule_use_time == 2 ? "diurnal" : (state->schedule_use_time == 1 ? "time" : "solar"),
 				 state->override_temp,
+				 heart_emoji,
+				 heart_emoji,
 				 state->current_setting.temperature,
 				 period_str,
-				 status_str, period_str, state->current_setting.temperature, state->current_setting.brightness,
-				 state->disabled ? "disabled" : (is_paused ? "paused" : "enabled"));
+				 heart_emoji,
+				 status_str,
+				 period_str,
+				 state->current_setting.temperature,
+				 state->current_setting.brightness,
+				 (state->disabled || is_paused) ? "disabled" : "enabled");
 			return 0;
 		}
 
@@ -430,6 +445,38 @@ ipc_dispatch_command(
 		snprintf(response_buf, response_buf_size,
 			 "Myopia protection mode: %s (2850K long-wavelength spectrum, 60%% luminance limit)\n",
 			 state->myopia_protect ? "Enabled" : "Disabled");
+		return 0;
+	} else if (strcasecmp(cmd, "sunlight") == 0 || strcasecmp(cmd, "outdoor") == 0) {
+		if (strcasecmp(arg, "off") == 0 || strcasecmp(arg, "0") == 0 || strcasecmp(arg, "false") == 0) {
+			state->sunlight_mode = 0;
+			state->override_temp = 0;
+			state->current_preset[0] = '\0';
+		} else if (strcasecmp(arg, "on") == 0 || strcasecmp(arg, "1") == 0 || strcasecmp(arg, "true") == 0) {
+			state->sunlight_mode = 1;
+			state->darkroom = 0;
+			state->movie_mode = 0;
+			state->disabled = 0;
+			state->pause_until = 0;
+			state->override_temp = 7500;
+			snprintf(state->current_preset, sizeof(state->current_preset), "Sunlight Mode");
+		} else {
+			state->sunlight_mode = !state->sunlight_mode;
+			if (state->sunlight_mode) {
+				state->darkroom = 0;
+				state->movie_mode = 0;
+				state->disabled = 0;
+				state->pause_until = 0;
+				state->override_temp = 7500;
+				snprintf(state->current_preset, sizeof(state->current_preset), "Sunlight Mode");
+			} else {
+				state->override_temp = 0;
+				state->current_preset[0] = '\0';
+			}
+		}
+		state->state_changed = 1;
+		snprintf(response_buf, response_buf_size,
+			 "Sunlight / Outdoor mode: %s (7500K clear-sky spectrum, glare-crushing gamma toe-lift, 100%% backlight)\n",
+			 state->sunlight_mode ? "Enabled" : "Disabled");
 		return 0;
 	} else if (strcasecmp(cmd, "couple-brightness") == 0 || strcasecmp(cmd, "couple") == 0) {
 		if (strcasecmp(arg, "off") == 0) {
@@ -627,6 +674,7 @@ ipc_dispatch_command(
 		state->darkroom = 0;
 		state->movie_mode = 0;
 		state->movie_mode_until = 0;
+		state->sunlight_mode = 0;
 		state->current_preset[0] = '\0';
 		state->state_changed = 1;
 		snprintf(response_buf, response_buf_size, "Status: Normal\n");
@@ -646,6 +694,7 @@ ipc_dispatch_command(
 			 "  resume           Resume adjustments\n"
 			 "  darkroom [on|off]Deep monochrome red for stargazing & darkrooms\n"
 			 "  movie [TIME|off] Movie Mode (2.5h duration, warm tone, preserves sky & shadows)\n"
+			 "  sunlight [on|off]Sunlight / Outdoor Mode (7500K, glare-crushing gamma toe-lift)\n"
 			 "  myopia-protect   Myopia protection mode (2850K, 60%% luminance limit)\n"
 			 "  couple-brightness Couple screen brightness with Kelvin temperature (Kruithof)\n"
 			 "  ambient [on|off] Ambient contrast balancer (scales brightness to room lux)\n"
@@ -928,6 +977,7 @@ ipc_client_dispatch(int argc, char *argv[])
 		"myopia-protect", "myopia", "reading",
 		"couple-brightness", "couple",
 		"ambient", "contrast", "pacer",
+		"sunlight", "outdoor",
 		"quit", "exit", "stop", "help", NULL
 	};
 

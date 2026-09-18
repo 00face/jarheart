@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
   <defs>
     <radialGradient id="heart_rad" cx="38%" cy="32%" r="65%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="55%" stop-color="#38bdf8" />
-      <stop offset="100%" stop-color="#0284c7" />
+      <stop offset="0%" stop-color="#fed7aa" />
+      <stop offset="55%" stop-color="#ea580c" />
+      <stop offset="100%" stop-color="#c2410c" />
     </radialGradient>
     <filter id="heart_drop" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0284c7" flood-opacity="0.45"/>
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#c2410c" flood-opacity="0.45"/>
     </filter>
   </defs>
   <path d="M 24 41 C 24 41 6 29 6 17 C 6 10 11.5 5 18.5 5 C 22 5 24 7.5 24 7.5 C 24 7.5 26 5 29.5 5 C 36.5 5 42 10 42 17 C 42 29 24 41 24 41 Z"

@@ -280,6 +280,8 @@ class SettingsDialog(Gtk.Window):
             ("4200K Fluoresc.", "fluorescent"),
             ("5500K Sunlight", "sunlight"),
             ("6500K Daylight", "daylight"),
+            ("☀️ 7500K Clear Sky", "clear-sky"),
+            ("☀️ 8000K Sun Boost", "sunlight-boost"),
             ("🌙 Moon (4100K)", "moon"),
             ("🔴 Mars (2100K)", "mars"),
             ("⭐ Venus (4800K)", "venus"),
@@ -434,6 +436,31 @@ class SettingsDialog(Gtk.Window):
         card_amb.pack_start(self.ambient_switch, False, False, 0)
         box.pack_start(card_amb, False, False, 0)
 
+        # Sunlight Mode Card (WO-025)
+        card_sun = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        card_sun.get_style_context().add_class('card-box')
+        v_sun = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        v_sun.set_hexpand(True)
+        lbl_sun = Gtk.Label(label=_("☀️ Sunlight / Outdoor Mode (Anti-Glare Boost)"))
+        lbl_sun.get_style_context().add_class('card-title')
+        lbl_sun.set_xalign(0.0)
+        desc_sun = Gtk.Label(label=_(
+            "Applies 7500K clear-sky spectrum with dynamic gamma toe-lift to de-crush shadows.\n"
+            "Prevents dark themes and IDEs from washing out into ambient surface glare."
+        ))
+        desc_sun.get_style_context().add_class('card-desc')
+        desc_sun.set_xalign(0.0)
+        desc_sun.set_line_wrap(True)
+        v_sun.pack_start(lbl_sun, False, False, 0)
+        v_sun.pack_start(desc_sun, False, False, 0)
+        card_sun.pack_start(v_sun, True, True, 0)
+
+        self.sunlight_switch = Gtk.Switch()
+        self.sunlight_switch.set_valign(Gtk.Align.CENTER)
+        self.sunlight_switch.connect('notify::active', self.on_sunlight_toggled)
+        card_sun.pack_start(self.sunlight_switch, False, False, 0)
+        box.pack_start(card_sun, False, False, 0)
+
         # Color-Critical Pause Quick Action
         card5 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         card5.get_style_context().add_class('card-box')
@@ -584,6 +611,10 @@ class SettingsDialog(Gtk.Window):
         val = switch.get_active()
         self.send_ipc(f'ambient {"on" if val else "off"}')
 
+    def on_sunlight_toggled(self, switch, gparam):
+        val = switch.get_active()
+        self.send_ipc(f'sunlight {"on" if val else "off"}')
+
     def on_schedule_changed(self, combo):
         active_id = combo.get_active_id()
         if active_id == 'solar':
@@ -613,6 +644,7 @@ schedule={self.schedule_combo.get_active_id() or 'solar'}
 couple-brightness={'true' if self.couple_switch.get_active() else 'false'}
 myopia-protect={'true' if self.myopia_switch.get_active() else 'false'}
 ambient-balancer={'true' if self.ambient_switch.get_active() else 'false'}
+sunlight-mode={'true' if self.sunlight_switch.get_active() else 'false'}
 pacer-interval={1200 if self.pacer_switch.get_active() else 0}
 adjustment-method=randr
 location-provider=manual
@@ -693,6 +725,10 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         self.movie_switch.handler_block_by_func(self.on_movie_toggled)
         self.movie_switch.set_active(_bool(st.get('movie_mode')))
         self.movie_switch.handler_unblock_by_func(self.on_movie_toggled)
+
+        self.sunlight_switch.handler_block_by_func(self.on_sunlight_toggled)
+        self.sunlight_switch.set_active(_bool(st.get('sunlight_mode')))
+        self.sunlight_switch.handler_unblock_by_func(self.on_sunlight_toggled)
 
         self.pacer_switch.handler_block_by_func(self.on_pacer_toggled)
         self.pacer_switch.set_active(int(st.get('pacer_interval', 0)) > 0)

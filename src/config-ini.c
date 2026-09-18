@@ -67,8 +67,13 @@ open_config_file(const char *filepath)
 		if (f == NULL && (env = getenv("XDG_CONFIG_HOME")) != NULL &&
 		    env[0] != '\0') {
 			snprintf(cp, sizeof(cp),
-					 "%s/redshift/redshift.conf", env);
+					 "%s/jarheart/jarheart.conf", env);
 			f = fopen(cp, "r");
+			if (f == NULL) {
+				snprintf(cp, sizeof(cp),
+						 "%s/redshift/redshift.conf", env);
+				f = fopen(cp, "r");
+			}
 			if (f == NULL) {
 				/* Fall back to formerly used path. */
 				snprintf(cp, sizeof(cp),
@@ -81,15 +86,25 @@ open_config_file(const char *filepath)
 		if (f == NULL && (env = getenv("localappdata")) != NULL &&
 		    env[0] != '\0') {
 			snprintf(cp, sizeof(cp),
-				 "%s\\redshift.conf", env);
+				 "%s\\jarheart.conf", env);
 			f = fopen(cp, "r");
+			if (f == NULL) {
+				snprintf(cp, sizeof(cp),
+					 "%s\\redshift.conf", env);
+				f = fopen(cp, "r");
+			}
 		}
 #endif
 		if (f == NULL && (env = getenv("HOME")) != NULL &&
 		    env[0] != '\0') {
 			snprintf(cp, sizeof(cp),
-				 "%s/.config/redshift/redshift.conf", env);
+				 "%s/.config/jarheart/jarheart.conf", env);
 			f = fopen(cp, "r");
+			if (f == NULL) {
+				snprintf(cp, sizeof(cp),
+					 "%s/.config/redshift/redshift.conf", env);
+				f = fopen(cp, "r");
+			}
 			if (f == NULL) {
 				/* Fall back to formerly used path. */
 				snprintf(cp, sizeof(cp),
@@ -103,8 +118,13 @@ open_config_file(const char *filepath)
 			struct passwd *pwd = getpwuid(getuid());
 			char *home = pwd->pw_dir;
 			snprintf(cp, sizeof(cp),
-				 "%s/.config/redshift/redshift.conf", home);
+				 "%s/.config/jarheart/jarheart.conf", home);
 			f = fopen(cp, "r");
+			if (f == NULL) {
+				snprintf(cp, sizeof(cp),
+					 "%s/.config/redshift/redshift.conf", home);
+				f = fopen(cp, "r");
+			}
 			if (f == NULL) {
 				/* Fall back to formerly used path. */
 				snprintf(cp, sizeof(cp),
@@ -237,6 +257,29 @@ config_ini_init(config_ini_state_t *state, const char *filepath)
 			*end = '\0';
 			char *value = end + 1;
 
+			/* Trim trailing whitespace from key name */
+			char *key_end = end - 1;
+			while (key_end >= s && (*key_end == ' ' || *key_end == '\t')) {
+				*key_end = '\0';
+				key_end--;
+			}
+			if (key_end < s) {
+				fputs(_("Empty key in config file.\n"), stderr);
+				fclose(f);
+				config_ini_free(state);
+				return -1;
+			}
+
+			/* Trim leading whitespace from value */
+			value += strspn(value, " \t");
+
+			/* Trim trailing whitespace from value */
+			size_t vlen = strlen(value);
+			while (vlen > 0 && (value[vlen - 1] == ' ' || value[vlen - 1] == '\t')) {
+				value[vlen - 1] = '\0';
+				vlen--;
+			}
+
 			if (section == NULL) {
 				fputs(_("Assignment outside section in config"
 					" file.\n"), stderr);
@@ -245,7 +288,7 @@ config_ini_init(config_ini_state_t *state, const char *filepath)
 				return -1;
 			}
 
-			/* Create section. */
+			/* Create setting. */
 			config_ini_setting_t *setting =
 				malloc(sizeof(config_ini_setting_t));
 			if (setting == NULL) {
@@ -261,17 +304,18 @@ config_ini_init(config_ini_state_t *state, const char *filepath)
 			section->settings = setting;
 
 			/* Copy name of setting. */
-			setting->name = malloc(end - s + 1);
+			size_t key_len = strlen(s) + 1;
+			setting->name = malloc(key_len);
 			if (setting->name == NULL) {
 				fclose(f);
 				config_ini_free(state);
 				return -1;
 			}
 
-			memcpy(setting->name, s, end - s + 1);
+			memcpy(setting->name, s, key_len);
 
 			/* Copy setting value. */
-			size_t value_len = strlen(value) + 1;
+			size_t value_len = vlen + 1;
 			setting->value = malloc(value_len);
 			if (setting->value == NULL) {
 				fclose(f);

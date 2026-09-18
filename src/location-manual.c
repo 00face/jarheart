@@ -117,6 +117,7 @@ location_manual_set_option(location_manual_state_t *state, const char *key,
 static int
 location_manual_get_fd(location_manual_state_t *state)
 {
+	(void)state;
 	return -1;
 }
 

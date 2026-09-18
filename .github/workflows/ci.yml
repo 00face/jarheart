@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        buildtype: [debug, release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libdrm-dev \
+            libxcb1-dev \
+            libxcb-randr0-dev \
+            libglib2.0-dev \
+            libwayland-dev \
+            wayland-protocols \
+            gettext \
+            python3-pip
+
+      - name: Install Meson
+        run: pip install --break-system-packages meson
+
+      - name: Configure Meson (${{ matrix.compiler }}, ${{ matrix.buildtype }})
+        env:
+          CC: ${{ matrix.compiler }}
+        run: |
+          meson setup build \
+            --buildtype=${{ matrix.buildtype }} \
+            -Dwarning_level=2 \
+            -Dwerror=true \
+            -Ddrm=enabled \
+            -Dgeoclue2=enabled
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Run Test Suite
+        run: meson test -C build --verbose
+
+      - name: Test CLI Execution
+        run: |
+          ./build/src/jarheart -l 12:-34 -pv
+          ./build/src/jarheart -l 12:-34 -m dummy -vo
+          printf "[jarheart]\ndawn-time=6:30\ndusk-time=18:00-19:30\n" > test_time.config
+          ./build/src/jarheart -c test_time.config -m dummy -pv
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install meson ninja gettext
+          brew link --force gettext
+
+      - name: Configure Meson
+        run: |
+          meson setup build \
+            -Dbuildtype=release \
+            -Ddrm=disabled \
+            -Dgeoclue2=disabled \
+            -Dquartz=enabled \
+            -Dcorelocation=enabled
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Run Test Suite
+        run: meson test -C build --verbose

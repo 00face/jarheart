@@ -55,8 +55,11 @@ class RedshiftController(GObject.GObject):
         self._period = 'Unknown'
         self._location = (0.0, 0.0)
 
-        # Start redshift with arguments
-        args.insert(0, os.path.join(defs.BINDIR, 'redshift'))
+        # Start jarheart/redshift with arguments
+        bin_path = os.path.join(defs.BINDIR, 'jarheart')
+        if not os.path.exists(bin_path):
+            bin_path = os.path.join(defs.BINDIR, 'redshift')
+        args.insert(0, bin_path)
         if '-v' not in args:
             args.insert(1, '-v')
 

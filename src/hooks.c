@@ -84,7 +84,7 @@ hooks_signal_period_change(period_t prev_period, period_t period)
 		if (ent->d_name[0] == '\0' || ent->d_name[0] == '.') continue;
 
 		char *hook_name = ent->d_name;
-		char hook_path[MAX_HOOK_PATH];
+		char hook_path[MAX_HOOK_PATH + 256 + 1];
 		snprintf(hook_path, sizeof(hook_path), "%s/%s",
 			 hooksdir_path, hook_name);
 

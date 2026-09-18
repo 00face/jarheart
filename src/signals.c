@@ -40,6 +40,7 @@ volatile sig_atomic_t disable = 0;
 static void
 sigexit(int signo)
 {
+	(void)signo;
 	exiting = 1;
 }
 
@@ -47,6 +48,7 @@ sigexit(int signo)
 static void
 sigdisable(int signo)
 {
+	(void)signo;
 	disable = 1;
 }
 

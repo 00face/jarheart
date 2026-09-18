@@ -75,6 +75,10 @@ int poll(struct pollfd *fds, int nfds, int timeout) { abort(); return -1; }
 
 #include "gamma-dummy.h"
 
+#ifdef ENABLE_WAYLAND
+# include "gamma-wayland.h"
+#endif
+
 #ifdef ENABLE_DRM
 # include "gamma-drm.h"
 #endif
@@ -358,7 +362,7 @@ provider_try_start(const location_provider_t *provider,
 
 	/* Set provider options from command line. */
 	const char *manual_keys[] = { "lat", "lon" };
-	int i = 0;
+	size_t i = 0;
 	while (args != NULL) {
 		char *next_arg = strchr(args, ':');
 		if (next_arg != NULL) *(next_arg++) = '\0';
@@ -907,6 +911,9 @@ main(int argc, char *argv[])
 
 	/* List of gamma methods. */
 	const gamma_method_t gamma_methods[] = {
+#ifdef ENABLE_WAYLAND
+		wayland_gamma_method,
+#endif
 #ifdef ENABLE_DRM
 		drm_gamma_method,
 #endif

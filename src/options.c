@@ -630,9 +630,12 @@ options_parse_config_file(
 	const gamma_method_t *gamma_methods,
 	const location_provider_t *location_providers)
 {
-	/* Read global config settings. */
+	/* Read global config settings: try jarheart first, fall back to redshift. */
 	config_ini_section_t *section = config_ini_get_section(
-		config_state, "redshift");
+		config_state, "jarheart");
+	if (section == NULL) {
+		section = config_ini_get_section(config_state, "redshift");
+	}
 	if (section == NULL) return;
 
 	config_ini_setting_t *setting = section->settings;

@@ -276,6 +276,7 @@ static int
 drm_set_temperature(
 	drm_state_t *state, const color_setting_t *setting, int preserve)
 {
+	(void)preserve;
 	drm_crtc_state_t *crtcs = state->crtcs;
 	int last_gamma_size = 0;
 	uint16_t *r_gamma = NULL;

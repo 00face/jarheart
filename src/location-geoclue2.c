@@ -86,6 +86,7 @@ geoclue_client_signal_cb(GDBusProxy *client, gchar *sender_name,
 			 gchar *signal_name, GVariant *parameters,
 			 gpointer user_data)
 {
+	(void)sender_name;
 	location_geoclue2_state_t *state = user_data;
 
 	/* Only handle LocationUpdated signals */
@@ -138,6 +139,8 @@ static void
 on_name_appeared(GDBusConnection *conn, const gchar *name,
 		 const gchar *name_owner, gpointer user_data)
 {
+	(void)name;
+	(void)name_owner;
 	location_geoclue2_state_t *state = user_data;
 
 	/* Obtain GeoClue Manager */
@@ -279,6 +282,8 @@ static void
 on_name_vanished(GDBusConnection *connection, const gchar *name,
 		 gpointer user_data)
 {
+	(void)connection;
+	(void)name;
 	location_geoclue2_state_t *state = user_data;
 
 	g_mutex_lock(&state->lock);
@@ -294,6 +299,8 @@ on_name_vanished(GDBusConnection *connection, const gchar *name,
 static gboolean
 on_pipe_closed(GIOChannel *channel, GIOCondition condition, gpointer user_data)
 {
+	(void)channel;
+	(void)condition;
 	location_geoclue2_state_t *state = user_data;
 	g_main_loop_quit(state->loop);
 
@@ -324,7 +331,7 @@ run_geoclue2_loop(void *state_)
 	GSource *pipe_source = g_io_create_watch(
 		pipe_channel, G_IO_IN | G_IO_HUP | G_IO_ERR);
         g_source_set_callback(
-		pipe_source, (GSourceFunc)on_pipe_closed, state, NULL);
+		pipe_source, (GSourceFunc)(void (*)(void))on_pipe_closed, state, NULL);
         g_source_attach(pipe_source, context);
 
 	g_main_loop_run(state->loop);
@@ -409,6 +416,8 @@ static int
 location_geoclue2_set_option(location_geoclue2_state_t *state,
 			     const char *key, const char *value)
 {
+	(void)state;
+	(void)value;
 	fprintf(stderr, _("Unknown method parameter: `%s'.\n"), key);
 	return -1;
 }

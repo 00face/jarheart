@@ -73,11 +73,13 @@ class SettingsDialog(Gtk.Window):
         css_provider = Gtk.CssProvider()
         try:
             css_provider.load_from_data(MODAL_CSS)
-            Gtk.StyleContext.add_provider_for_screen(
-                Gdk.Screen.get_default(),
-                css_provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
+            screen = Gdk.Screen.get_default()
+            if screen:
+                Gtk.StyleContext.add_provider_for_screen(
+                    screen,
+                    css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+                )
         except Exception as e:
             print("Warning: CSS provider load error:", e)
 
@@ -118,7 +120,10 @@ class SettingsDialog(Gtk.Window):
         self.build_schedules_tab()
         self.build_diagnostics_tab()
 
+        self.stack.set_visible_child_name("display")
+
         self.connect('delete-event', self.on_close_clicked)
+        self.load_config_defaults()
         self.refresh_state_from_daemon()
 
     def send_ipc(self, cmd):
@@ -248,6 +253,50 @@ class SettingsDialog(Gtk.Window):
         h4.pack_start(self.bright_badge, False, False, 0)
         card4.pack_start(h4, False, False, 0)
         box.pack_start(card4, False, False, 0)
+
+        # Quick Kelvin Presets Card
+        card_p = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card_p.get_style_context().add_class('card-box')
+        lbl_p = Gtk.Label(label=_("Quick Kelvin Presets"))
+        lbl_p.get_style_context().add_class('card-title')
+        lbl_p.set_xalign(0.0)
+        desc_p = Gtk.Label(label=_("Instantly apply calibrated Kelvin spectrum or celestial profiles."))
+        desc_p.get_style_context().add_class('card-desc')
+        desc_p.set_xalign(0.0)
+        card_p.pack_start(lbl_p, False, False, 0)
+        card_p.pack_start(desc_p, False, False, 0)
+
+        preset_grid = Gtk.Grid()
+        preset_grid.set_column_spacing(6)
+        preset_grid.set_row_spacing(6)
+        preset_grid.set_column_homogeneous(True)
+
+        presets = [
+            ("1200K Ember", "ember"),
+            ("1900K Candle", "candle"),
+            ("2300K Warm Inc.", "warm-incandescent"),
+            ("2700K Incand.", "incandescent"),
+            ("3400K Halogen", "halogen"),
+            ("4200K Fluoresc.", "fluorescent"),
+            ("5500K Sunlight", "sunlight"),
+            ("6500K Daylight", "daylight"),
+            ("🌙 Moon (4100K)", "moon"),
+            ("🔴 Mars (2100K)", "mars"),
+            ("⭐ Venus (4800K)", "venus"),
+            ("🔄 Reset Schedule", "reset")
+        ]
+        for idx, (label, p_id) in enumerate(presets):
+            btn = Gtk.Button(label=label)
+            if p_id == "reset":
+                btn.connect('clicked', lambda w: self.send_ipc('reset'))
+            else:
+                btn.connect('clicked', lambda w, pid=p_id: self.send_ipc(f'preset {pid}'))
+            col = idx % 4
+            row = idx // 4
+            preset_grid.attach(btn, col, row, 1, 1)
+
+        card_p.pack_start(preset_grid, False, False, 0)
+        box.pack_start(card_p, False, False, 0)
 
         self.stack.add_titled(scrolled, "display", _("Display & Circadian"))
 
@@ -581,30 +630,68 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         except Exception as e:
             print("Error saving config:", e)
 
+    def load_config_defaults(self):
+        """Load default slider and switch states from user's config file if present."""
+        import configparser
+        candidates = [
+            os.path.expanduser('~/.config/jarheart/jarheart.conf'),
+            os.path.expanduser('~/.config/redshift/redshift.conf'),
+            os.path.expanduser('~/.config/redshift.conf')
+        ]
+        cfg = configparser.ConfigParser()
+        for path in candidates:
+            if os.path.exists(path):
+                try:
+                    cfg.read(path)
+                    sec = 'jarheart' if 'jarheart' in cfg else ('redshift' if 'redshift' in cfg else None)
+                    if sec:
+                        if 'temp-day' in cfg[sec]:
+                            v = int(cfg[sec]['temp-day'])
+                            self.day_scale.set_value(v)
+                            self.day_badge.set_text(f"{v}K")
+                        if 'temp-night' in cfg[sec]:
+                            v = int(cfg[sec]['temp-night'])
+                            self.night_scale.set_value(v)
+                            self.night_badge.set_text(f"{v}K")
+                        if 'brightness' in cfg[sec]:
+                            v = int(float(cfg[sec]['brightness']) * 100)
+                            self.bright_scale.set_value(v)
+                            self.bright_badge.set_text(f"{v}%")
+                        if 'lat' in cfg.get('manual', {}):
+                            self.lat_entry.set_text(cfg['manual']['lat'])
+                        if 'lon' in cfg.get('manual', {}):
+                            self.lon_entry.set_text(cfg['manual']['lon'])
+                    break
+                except Exception:
+                    pass
+
     def refresh_state_from_daemon(self):
         st = self.query_daemon_state()
         if not st:
             return
 
+        def _bool(val):
+            return val is True or val == 'true' or val == 1 or val == '1'
+
         # Block signal handlers during population
         self.couple_switch.handler_block_by_func(self.on_couple_brightness_toggled)
-        self.couple_switch.set_active(st.get('couple_brightness') == 'true')
+        self.couple_switch.set_active(_bool(st.get('couple_brightness')))
         self.couple_switch.handler_unblock_by_func(self.on_couple_brightness_toggled)
 
         self.myopia_switch.handler_block_by_func(self.on_myopia_toggled)
-        self.myopia_switch.set_active(st.get('myopia_protect') == 'true')
+        self.myopia_switch.set_active(_bool(st.get('myopia_protect')))
         self.myopia_switch.handler_unblock_by_func(self.on_myopia_toggled)
 
         self.ambient_switch.handler_block_by_func(self.on_ambient_toggled)
-        self.ambient_switch.set_active(st.get('ambient_balancer') == 'true')
+        self.ambient_switch.set_active(_bool(st.get('ambient_balancer')))
         self.ambient_switch.handler_unblock_by_func(self.on_ambient_toggled)
 
         self.darkroom_switch.handler_block_by_func(self.on_darkroom_toggled)
-        self.darkroom_switch.set_active(st.get('darkroom') == 'true')
+        self.darkroom_switch.set_active(_bool(st.get('darkroom')))
         self.darkroom_switch.handler_unblock_by_func(self.on_darkroom_toggled)
 
         self.movie_switch.handler_block_by_func(self.on_movie_toggled)
-        self.movie_switch.set_active(st.get('movie_mode') == 'true')
+        self.movie_switch.set_active(_bool(st.get('movie_mode')))
         self.movie_switch.handler_unblock_by_func(self.on_movie_toggled)
 
         self.pacer_switch.handler_block_by_func(self.on_pacer_toggled)
@@ -644,6 +731,41 @@ lon={self.lon_entry.get_text().strip() or '-87.65'}
         self.diag_labels['crtc'].set_text("X11 RandR CRTC 0 (Downstream of Compiz)")
         self.diag_labels['ipc'].set_text("Connected (<2ms latency, UNIX socket)")
 
+    def present(self):
+        """Ensure full widget hierarchy is visible before presenting modal to display."""
+        self.show_all()
+        super().present()
+
     def on_close_clicked(self, widget, event=None):
-        self.hide()
-        return True
+        if self.parent_statusicon is not None:
+            self.hide()
+            return True
+        else:
+            if Gtk.main_level() > 0:
+                Gtk.main_quit()
+            return False
+
+def main():
+    """Standalone launcher entrypoint for Jarheart Preferences."""
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    if '--help' in sys.argv or '-h' in sys.argv:
+        print("Usage: jarheart-settings [OPTIONS]")
+        print("Launch the Jarheart Preferences & Circadian Settings modal.")
+        print("")
+        print("Options:")
+        print("  -h, --help     Show this help message and exit")
+        print("  -v, --version  Show version information and exit")
+        sys.exit(0)
+    if '--version' in sys.argv or '-v' in sys.argv:
+        print("Jarheart Preferences 1.13")
+        sys.exit(0)
+
+    dialog = SettingsDialog()
+    dialog.connect('destroy', Gtk.main_quit)
+    dialog.show_all()
+    dialog.present()
+    Gtk.main()
+
+if __name__ == '__main__':
+    main()

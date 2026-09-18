@@ -382,6 +382,7 @@ class RedshiftStatusIcon(object):
         if self.settings_dialog is None:
             self.settings_dialog = SettingsDialog(parent_statusicon=self)
         self.settings_dialog.refresh_state_from_daemon()
+        self.settings_dialog.show_all()
         self.settings_dialog.present()
 
     def preset_cb(self, widget, preset_name):
@@ -401,24 +402,27 @@ class RedshiftStatusIcon(object):
         if raw:
             try:
                 st = json.loads(raw)
+                def _bool(v):
+                    return v is True or v == 'true' or v == 1 or v == '1'
+
                 self.darkroom_item.handler_block_by_func(self.darkroom_toggle_cb)
-                self.darkroom_item.set_active(st.get('darkroom') == 'true')
+                self.darkroom_item.set_active(_bool(st.get('darkroom')))
                 self.darkroom_item.handler_unblock_by_func(self.darkroom_toggle_cb)
 
                 self.movie_item.handler_block_by_func(self.movie_toggle_cb)
-                self.movie_item.set_active(st.get('movie_mode') == 'true')
+                self.movie_item.set_active(_bool(st.get('movie_mode')))
                 self.movie_item.handler_unblock_by_func(self.movie_toggle_cb)
 
                 self.myopia_item.handler_block_by_func(self.myopia_toggle_cb)
-                self.myopia_item.set_active(st.get('myopia_protect') == 'true')
+                self.myopia_item.set_active(_bool(st.get('myopia_protect')))
                 self.myopia_item.handler_unblock_by_func(self.myopia_toggle_cb)
 
                 self.couple_item.handler_block_by_func(self.couple_toggle_cb)
-                self.couple_item.set_active(st.get('couple_brightness') == 'true')
+                self.couple_item.set_active(_bool(st.get('couple_brightness')))
                 self.couple_item.handler_unblock_by_func(self.couple_toggle_cb)
 
                 self.ambient_item.handler_block_by_func(self.ambient_toggle_cb)
-                self.ambient_item.set_active(st.get('ambient_balancer') == 'true')
+                self.ambient_item.set_active(_bool(st.get('ambient_balancer')))
                 self.ambient_item.handler_unblock_by_func(self.ambient_toggle_cb)
             except Exception:
                 pass
@@ -575,6 +579,12 @@ def run():
         except Exception:
             pass
     gettext.textdomain('jarheart')
+
+    for pref_arg in ('-p', '--preferences', '--settings'):
+        if pref_arg in sys.argv:
+            from redshift_gtk.settings_dialog import main
+            main()
+            sys.exit(0)
 
     for help_arg in ('-h', '--help'):
         if help_arg in sys.argv:

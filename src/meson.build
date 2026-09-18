@@ -144,4 +144,13 @@ if get_option('gui')
     install_dir: get_option('bindir'),
     install_mode: 'rwxr-xr-x',
   )
+
+  configure_file(
+    input: 'redshift-gtk/jarheart-settings.in',
+    output: 'jarheart-settings',
+    configuration: launcher_conf,
+    install: true,
+    install_dir: get_option('bindir'),
+    install_mode: 'rwxr-xr-x',
+  )
 endif

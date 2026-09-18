@@ -43,6 +43,15 @@ if get_option('gui')
   )
 
   i18n.merge_file(
+    input: 'applications/jarheart-settings.desktop.in',
+    output: 'jarheart-settings.desktop',
+    po_dir: '../po',
+    type: 'desktop',
+    install: true,
+    install_dir: get_option('datadir') / 'applications',
+  )
+
+  i18n.merge_file(
     input: 'applications/redshift.desktop.in',
     output: 'redshift.desktop',
     po_dir: '../po',

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Name=Jarheart Preferences
+GenericName=Display & Circadian Settings
+Comment=Configure color temperature, circadian schedules, and ocular ergonomics
+Exec=jarheart-settings
+Icon=jarheart
+Terminal=false
+Type=Application
+Categories=Settings;HardwareSettings;Utility;
+Keywords=color;temperature;redshift;night;light;blue;screen;display;preferences;settings;
+StartupNotify=true

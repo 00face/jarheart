@@ -58,12 +58,16 @@ In the engineering of display-altering systems software, software defects immedi
 +---------------------------------------------------------------------------------------+
 ```
 
-### Rite I: The Rite of Inception (Triage, Scoping & Mathematical Specification)
+### Rite I: The Rite of Inception (Triage, Scoping & Evidence-Based Photometrics)
 1. **Photometric / Mathematical Foundation**: Every color alteration must be defined by closed-form equations (Robertson's method for correlated color temperature, CIE 1931 xy chromaticity coordinates, or explicit gamma transfer functions).
-2. **Safety & Physiological Bounds**: Features modifying color balance must verify edge cases:
-   - Zero-photon emission for darkroom mode (pure monochrome red: green and blue channels locked strictly to `0`).
-   - Highlight preservation and toe lift equations for movie viewing.
-   - Guard against divide-by-zero or negative luminance in blackbody interpolation.
+2. **Evidence-Based Physiological & Ophthalmic Bounds**: Features modifying color balance and display properties must be anchored in clinical and empirical ocular research:
+   - *Luminance-CCT Co-Modulation Invariant (NYU Langone Eye Center RCT)*: Shifting color temperature alone does not significantly alleviate digital eye strain; reducing screen brightness (to 50–60%) provides a statistically significant, clinically meaningful reduction in ocular fatigue (P = 0.0007). Display temperature transitions must therefore support coupled luminance attenuation to eliminate pupillary conflict under warm spectra.
+   - *Low-CCT Axial Myopia Retardation Invariant (CAS Macaque Longitudinal Study)*: 365-day controlled primate trials demonstrate that low-CCT artificial illumination (2700K–3000K) rich in long-wavelength spectral components significantly retards ocular axial elongation compared to high CCT (4000K–5000K). Extended reading and juvenile modes must provide low-CCT protection.
+   - *Choroidal Thickness & Spectral Fullness (SERI / Duke-NUS IOVS Study)*: Continuous, full-spectrum daylight-mimicking illumination accelerates recovery from axial elongation and prevents choroidal thinning compared to discontinuous spiked fluorescent lighting.
+   - *Diurnal Alertness vs. Visual Comfort Split (Shi et al. 2025)*: High CCT (>6000K–6300K) actively promotes daytime alertness and cognitive performance, while 3000K–4000K optimizes subjective visual comfort and fatigue relief, and ≤2700K preserves evening melatonin secretion.
+   - *Ocular Tear Film & Ciliary Muscle Pacing (20-20-20 Protocol)*: Prolonged screen gaze suppresses involuntary blink rate, inducing tear film evaporative breakdown and accommodative ciliary spasm. Display tooling should provide micro-break pacing.
+   - *Zero-Photon Emission for Darkroom*: Pure monochrome ruby red (green and blue lookup tables strictly locked to `0`).
+   - *Highlight Preservation for Cinema*: Dynamic blue floor lift and toe expansion equations for movie viewing.
 3. **Control Interface Contract**: Any new capability must specify its interface across all three pillars of Jarheart:
    - Command-line argument and subcommand (`jarheart <command>`).
    - Unix Domain Socket IPC command verb (`src/ipc.c`).
@@ -160,6 +164,11 @@ In the engineering of display-altering systems software, software defects immedi
 | **WO-016** | Redshift-to-Jarheart Legacy Configuration Migration Tooling | P3 | Tooling | **QUEUED** | Automated migration script `jarheart-migrate` |
 | **WO-017** | Wayland Gamma Blend Curves (Smooth Per-Output Transitions) | P2 | Wayland | **QUEUED** | Atomic animated transitions on wlroots |
 | **WO-018** | Battery Saver / Low Power Adaptive Temp & Backlight Throttling | P3 | Power / Mobile | **QUEUED** | UPower D-Bus integration for battery life |
+| **WO-019** | Evidence-Based Dual Brightness-CCT Coupling (Kruithof Ergonomics) | P1 | Ergonomics | **TRIAGED** | Coupled brightness-Kelvin attenuation |
+| **WO-020** | Pediatric & Extended Reading Myopia Protection Mode (2700K–3000K) | P1 | Health / Mode | **TRIAGED** | `jarheart myopia-protect`, 2850K @ 60% lum |
+| **WO-021** | Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restoration Pacer| P2 | Ergonomics | **TRIAGED** | `jarheart pacer`, micro-break reminders |
+| **WO-022** | Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule | P2 | Circadian | **TRIAGED** | Morning alertness -> afternoon comfort -> night |
+| **WO-023** | Ambient Contrast & Eye-Level Illuminance Balancer (ALS Dynamic) | P2 | Sensor / HW | **TRIAGED** | Contrast-matching screen to room lux |
 
 ---
 
@@ -445,6 +454,95 @@ In the engineering of display-altering systems software, software defects immedi
   - Automatically drop color temperature to 3400K (Halogen) and decrease brightness by 20% when battery drops below 20%.
 - **Verification Protocol**:
   - Simulating battery low signal triggers power-saving profile.
+
+---
+
+### WO-019: Evidence-Based Dual Brightness-CCT Coupling (Kruithof Ergonomics)
+- **Status**: `TRIAGED`
+- **Priority**: `P1 - High`
+- **Type**: `Ergonomics & Physiological Vision`
+- **Prerequisites**: WO-005, WO-007, WO-011
+- **Scientific Foundation**: NYU Langone Eye Center Randomized Controlled Trial (NCT05042960). Color temperature modulation alone (f.lux 2700K) produced no statistically significant reduction in eye strain symptoms. In contrast, **reducing screen brightness to 50–60% yielded a statistically significant, clinically meaningful reduction in ocular fatigue severity (-0.82, P = 0.0007)**.
+- **Problem Statement**: Standard night-light utilities shift color temperature to warm/orange while leaving screen luminance at 100%. Under low-CCT spectra, pupillary dilation is restricted while high photon flux continues hitting the retina, inducing severe ocular fatigue.
+- **Scope & Technical Plan**:
+  - Implement dynamic brightness coupling: as color temperature drops from day (6500K) to night (2700K–3400K), automatically attenuate screen brightness along Kruithof's zone of visual comfort (e.g. from 1.0 down to 0.55–0.60).
+  - Add configuration setting `couple-brightness = true` and `night-brightness = 0.55`.
+  - Add CLI flag `jarheart --couple-brightness` and IPC verb `couple-brightness [on|off]`.
+  - Coordinate software gamma multiplication with hardware panel backlight (`/sys/class/backlight`) when root permissions or logind permits.
+- **Verification Protocol**:
+  - In night transition, verify that both CCT drops to 3400K and CRTC ramp peak scales down to ~60% (e.g. ~39321/65535).
+
+---
+
+### WO-020: Pediatric & Extended Reading Myopia Protection Mode (2700K–3000K)
+- **Status**: `TRIAGED`
+- **Priority**: `P1 - High`
+- **Type**: `Specialized Mode / Ocular Health`
+- **Prerequisites**: WO-008, WO-010, WO-019
+- **Scientific Foundation**: Chinese Academy of Sciences (Kunming Institute of Zoology) 365-day longitudinal study on juvenile primates (rhesus macaques). Low-CCT artificial illumination (2700K incandescent and 3000K LED) **significantly slowed ocular axial elongation (0.32mm vs 0.49mm/0.46mm, P < 0.05)** by ~40–50% compared to 4000K and 5000K, demonstrating that long-wavelength dominant spectra protect against juvenile axial myopia development.
+- **Problem Statement**: Students, software engineers, and children engaged in extended near-work (reading, coding) are exposed to high-CCT screens with heavy short-wavelength blue spikes that stimulate excessive ocular axial elongation.
+- **Scope & Technical Plan**:
+  - Create dedicated `myopia-protect` mode:
+    - Spectrum: Calibrated 2850K (harmonic mean of 2700K incandescent and 3000K warm LED tested in the study).
+    - Luminance Cap: Automatically clamps maximum screen luminance to 55–60% (as established in WO-019) to prevent pupil over-dilation while providing high contrast for text rendering.
+  - CLI subcommand: `jarheart myopia-protect [on|off|toggle]`.
+  - IPC command verb: `myopia-protect`.
+  - GTK tray toggle with child/reading eye-health icon.
+- **Verification Protocol**:
+  - `jarheart myopia-protect on` applies 2850K color curve and clamps brightness to 0.60; verified via `jarheart status -j`.
+
+---
+
+### WO-021: Ergonomic 20-20-20 Ocular Relaxation & Tear-Film Restoration Pacer
+- **Status**: `TRIAGED`
+- **Priority**: `P2 - Normal`
+- **Type**: `Ergonomic Utility / UX`
+- **Prerequisites**: WO-005, WO-012, WO-015
+- **Scientific Foundation**: Clinical computer vision syndrome research (Talens-Estarelles et al., 2022; Sheppard & Wolffsohn, 2018; Mehra & Galor, 2020). Digital screen use decreases spontaneous blink rate and blink amplitude, leading to evaporative dry eye, tear film breakup, and ciliary muscle spasm.
+- **Problem Statement**: Users stare continuously at near displays for hours without blinking or shifting accommodation, causing physical ocular pain and dry eyes regardless of screen color.
+- **Scope & Technical Plan**:
+  - Implement an internal non-blocking 20-minute pacer in the main `poll()` reactor.
+  - Every 20 minutes of active desktop interaction:
+    - Option A (Subtle Visual Breathe): Gently pulses display brightness down by 15% over 1.5s and back up over 1.5s as an ambient biological pacing cue.
+    - Option B (Notification): Sends a transient FreeDesktop desktop notification: "20-20-20 Rest: Look 20 feet away for 20 seconds to replenish tear film and relax ciliary muscles."
+  - CLI subcommand: `jarheart pacer [20m|30m|breathe|notify|off]`.
+  - IPC command verb: `pacer`.
+- **Verification Protocol**:
+  - Test pacer trigger at 5s interval in test harness; verify smooth brightness pulse and D-Bus signal emission.
+
+---
+
+### WO-022: Diurnal Bi-Phasic Alertness-to-Comfort Circadian Schedule
+- **Status**: `TRIAGED`
+- **Priority**: `P2 - Normal`
+- **Type**: `Circadian Optimization`
+- **Prerequisites**: WO-006, WO-010
+- **Scientific Foundation**: Shi et al. (Building and Environment 2025) and Najjar et al. (IOVS 2022). High CCT (>6000K–6300K) actively stimulates daytime alertness and cognitive performance, while 3000K–4000K optimizes subjective visual comfort, and ≤2700K avoids evening melatonin suppression.
+- **Problem Statement**: Standard circadian curves treat the entire daylight period as a static 6500K block. Users experience afternoon cognitive fatigue and visual strain under static blue-rich lighting.
+- **Scope & Technical Plan**:
+  - Introduce a tri-phasic diurnal transition curve:
+    - *Morning Focus Phase* (08:00–12:00): 6500K @ 100% luminance (Peak alertness, S-cone stimulation).
+    - *Afternoon Sustained Focus & Comfort Phase* (12:00–17:00): 3800K–4200K @ 80% luminance (Reduced eye fatigue, sustained comfort).
+    - *Evening Circadian Wind-Down Phase* (17:00–22:00): Smooth ramp down to 2300K–2700K @ 55% luminance (Melatonin synthesis, axial rest).
+    - *Night Rest / Sleep Protection* (22:00+): 1900K (Candle) @ 40% luminance.
+  - Configuration key: `schedule = diurnal-triphasic`.
+- **Verification Protocol**:
+  - Synthetic clock time step progression through 09:00, 14:00, 19:00, 23:00 produces exact expected intermediate curves.
+
+---
+
+### WO-023: Ambient Contrast & Eye-Level Illuminance Balancer
+- **Status**: `TRIAGED`
+- **Priority**: `P2 - Normal`
+- **Type**: `Sensor / Hardware Automation`
+- **Prerequisites**: WO-011, WO-014, WO-019
+- **Scientific Foundation**: Shi et al. (Building and Environment 2025) on eye vs ground illuminance, and Kaur et al. (2022). Excessive luminance contrast between screen and ambient room surroundings (>3:1) forces constant pupillary readjustment and drives digital eye strain.
+- **Problem Statement**: In dark rooms, a 300-nit screen induces severe glare; in bright rooms, a dimmed screen causes squinting and loss of contrast.
+- **Scope & Technical Plan**:
+  - Dynamically match display luminance to ambient room illuminance reported by IIO ambient lux sensors.
+  - Maintain display-to-ambient contrast within optimal physiological ergonomic ratios (1:1 to 3:1).
+- **Verification Protocol**:
+  - Changing ambient lux from 50 lx (dim room) to 500 lx (office) modulates target screen brightness smoothly from 40% to 100%.
 
 ---
 

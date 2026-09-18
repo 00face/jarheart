@@ -376,6 +376,10 @@ def run():
             print(_('Please run `jarheart -h` or `redshift -h` for help output.'))
             sys.exit(-1)
 
+    # Ignore SIGHUP so the tray app survives subshell or launcher exit
+    if hasattr(signal, 'SIGHUP'):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
     # Create redshift child process controller
     c = RedshiftController(sys.argv[1:])
 
